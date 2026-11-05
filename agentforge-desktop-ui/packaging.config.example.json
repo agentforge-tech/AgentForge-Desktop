@@ -1,0 +1,10 @@
+{
+  "jreHomes": {
+    "mac-arm64": "/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home",
+    "mac-x64": "/path/to/macos-x64-jre-8/Contents/Home",
+    "win-x64": "C:\\Tools\\jre8-win-x64"
+  },
+  "jreArchives": {
+    "win-x64": "/path/to/jre8-win-x64.zip"
+  }
+}

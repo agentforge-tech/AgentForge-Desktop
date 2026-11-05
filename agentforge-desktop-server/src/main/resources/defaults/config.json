@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "defaultAid": "agt_default",
+  "models": [],
+  "agents": [
+    {
+      "aid": "agt_default",
+      "name": "AgentForge Desktop",
+      "type": 1,
+      "avatar": "/logo.png",
+      "description": "AgentForge Desktop 默认 AI 助手",
+      "agentConfig": {
+        "systemPrompt": "你是一名专业的 AI 助手，请准确、清晰地回答用户问题。",
+        "chatModel": {
+          "default_model_id": null,
+          "model_ids": []
+        },
+        "chatMemoryConfig": {
+          "type": 1,
+          "memoryConfig": "{\"maxMessage\":1000}"
+        },
+        "pluginConfig": null
+      },
+      "experConfig": {
+        "welcomeText": "今天想解决什么问题？",
+        "themeColor": "#4f46e5"
+      },
+      "createTime": "2026-01-01T10:00:00+08:00",
+      "modifyTime": "2026-01-01T10:00:00+08:00"
+    }
+  ]
+}

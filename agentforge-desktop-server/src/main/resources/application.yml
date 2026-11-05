@@ -1,0 +1,30 @@
+server:
+  address: 127.0.0.1
+  port: ${AGENTFORGE_DESKTOP_PORT:43179}
+  shutdown: graceful
+
+spring:
+  application:
+    name: agentforge-desktop-server
+  main:
+    banner-mode: "off"
+  jackson:
+    default-property-inclusion: non_null
+  mvc:
+    async:
+      request-timeout: -1
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+agentforge:
+  desktop:
+    root-dir: ${AGENTFORGE_DESKTOP_ROOT_DIR:${user.home}/.agentforge-desktop}
+    token: ${AGENTFORGE_DESKTOP_TOKEN:}
+    config-file: ${AGENTFORGE_DESKTOP_CONFIG:}
+
+logging:
+  level:
+    root: INFO
+    cloud.changlu.agentforge.desktop: INFO
