@@ -1,79 +1,151 @@
 # AgentForge Desktop
 
-AgentForge 桌面版 Agent 工作台：Vue2 + Vite + Electron 桌面壳，内置 Spring Boot 后端与 JRE 8。
+**English** | [简体中文](README.zh-CN.md)
 
-## 目录
+A local-first AI agent workbench for macOS and Windows. AgentForge Desktop pairs a Vue 2 + Vite + Electron shell with an embedded Spring Boot backend and a bundled JRE 8 runtime, so users can install one app, start chatting with an agent, and never touch a terminal or configure a JDK.
 
-- `agentforge-desktop-server`：本地 Java 后端（Spring Boot 2.7.18 / Java 8 / SQLite）
-- `agentforge-desktop-ui`：Vue2 + Vite + Electron 桌面端
-- `docs/桌面版agent工作台设计实现`：设计与实现方案
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-4f46e5)
+![Electron](https://img.shields.io/badge/Electron-31-47848f)
+![Vue](https://img.shields.io/badge/Vue-2.7-42b883)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-2.7-6db33f)
+![Java](https://img.shields.io/badge/Java-8-e76f00)
 
-## 环境要求
+## Why AgentForge Desktop
 
-- Node.js 22+、npm 10+
-- JDK 8（推荐 Zulu 8 / Temurin 8）
+Most agent frameworks assume a server, a database, and a developer on call. AgentForge Desktop takes the opposite route: the whole runtime lives on the user's machine.
+
+- **Zero setup** — Electron launches the backend JAR on a free local port with a one-time token; no JDK, Maven, or database install required at runtime.
+- **Local-first by design** — conversations, memories, and configuration stay in `~/.agentforge-desktop`. SQLite replaces MySQL, and the server binds to `127.0.0.1` only.
+- **Real agent loop** — streaming reasoning, tool calls, workspace-aware execution, and cancellable runs, not a chat wrapper.
+- **One-click delivery** — build scripts assemble the JAR, JRE, and Electron app for macOS arm64/x64 and Windows x64.
+
+## Features
+
+- **Workbench** — session history, pinned/renamed/deleted conversations, and a detail pane with markdown, highlighted code blocks, and one-click copy.
+- **Streaming chat** — `session / think / resp / tool_call / resp_end / error` events over SSE, plus replay of persisted events for historical messages.
+- **Workspace selection** — pick a local project folder per conversation; the agent runs against that workspace with environment-aware built-in instructions.
+- **Model management** — CRUD, connectivity checks, Function Call tests, and per-agent model allowlists/defaults.
+- **Agent configuration** — model set, default model, memory window, and a read-only preview of the composed built-in system prompt. Saved changes take effect immediately.
+- **Dual render modes** — debug and polished modes for inspecting raw reasoning versus reading the final answer.
+- **Hot reload** — editing `conf/config.json` or `conf/models.json` by hand is picked up automatically.
+- **Versioned SQLite migrations** — checksum-verified incremental SQL applied at startup, with a manual CLI for troubleshooting.
+- **CI-friendly scripts** — `doctor` environment checks, layered build/dev/package/verify scripts, and artifact verification for both platforms.
+
+## Architecture
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ Electron main process                                        │
+│  · pick a free port / generate a one-time token              │
+│  · spawn runtime/jre/bin/java -jar runtime/server/*.jar      │
+│  · wait for /api/local/health, then expose IPC to renderer   │
+└───────────────────────────────┬──────────────────────────────┘
+                                │ IPC
+┌───────────────────────────────▼──────────────────────────────┐
+│ Renderer (Vue 2 + Vite + Element UI)                         │
+│  · workbench, session history, model & agent pages           │
+│  · API client attaches baseUrl + desktop token               │
+└───────────────────────────────┬──────────────────────────────┘
+                                │ HTTP / SSE (127.0.0.1)
+┌───────────────────────────────▼──────────────────────────────┐
+│ agentforge-desktop-server (Spring Boot 2.7 / Java 8)         │
+│  · ChatController / Session / Message / Model / Agent APIs   │
+│  · HarnessAgent + LocalRuntime, middleware, SSE protocol     │
+│  · DesktopConfigStore + SQLite schema migrator               │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Tech Stack
+
+| Layer | Choice |
+| --- | --- |
+| Desktop shell | Electron 31 |
+| Renderer | Vue 2.7, Vue Router 3, Vite 5, Element UI 2.15 |
+| Markdown | markdown-it, highlight.js, KaTeX, DOMPurify |
+| Backend | Spring Boot 2.7.18, Java 8, MyBatis 2.3 |
+| Persistence | SQLite (sqlite-jdbc 3.46.x) |
+| Agent runtime | AgentForge `agentforge-agent-core`, `agentforge-harness-agent`, `agentforge-model-registry` |
+| Packaging | spring-boot-maven-plugin, bundled JRE 8, electron-builder |
+
+## Repository Layout
+
+```text
+agentforge-desktop-server/   Local Spring Boot backend (SSE, SQLite, agent runtime)
+agentforge-desktop-ui/       Vue 2 renderer, Electron main process, build/package scripts
+docs/                        Design notes, local debugging guides, and packaging docs
+```
+
+## Requirements
+
+- Node.js 22+ and npm 10+
+- JDK 8 (Zulu 8 or Temurin 8 recommended)
 - Maven 3.9+
-- macOS（arm64/x64）或 Windows x64
+- macOS (arm64/x64) or Windows x64
 
-本机若已安装 `/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home`，
-构建脚本会自动识别；也可通过 `AGENTFORGE_DESKTOP_JAVA_HOME` 指定。
+The build scripts auto-detect a JDK at `/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home`. Override it with `AGENTFORGE_DESKTOP_JAVA_HOME`.
 
-## 快速开始
+The first build installs the AgentForge core artifacts into the local Maven repository. The source tree is expected at `../../AgentForge`; override with `AGENTFORGE_HOME`.
+
+## Getting Started
 
 ```bash
-# 0. 首次构建会自动把 AgentForge 核心构件安装到本地 Maven 仓库
-#    AgentForge 源码默认位于 ../../AgentForge，可用 AGENTFORGE_HOME 覆盖
+# 0. Read-only environment check: Node/npm/JDK 8/Maven/core artifacts/deps/runtime/disk
+cd agentforge-desktop-ui
+npm install
+npm run doctor
 
-# 1. 启动后端（IDE 或命令行，默认端口 43179）
-cd agentforge-desktop-server
+# 1. Start the backend (default port 43179)
+cd ../agentforge-desktop-server
 mvn spring-boot:run
 
-# 2. 启动桌面端（连接本机后端）
+# 2. Start the desktop app against the local backend
 cd ../agentforge-desktop-ui
-npm install
-npm run doctor   # 只读环境体检：Node/npm/JDK 8/Maven/核心构件/依赖/runtime/磁盘
-# 如果 Electron 下载慢或失败，可使用镜像：
-# ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install
 npm run desktop:dev
 
-# 3. 一键构建后端 + 内置 JRE 调试
+# 3. Or build the JAR + embedded runtime and start everything at once
 npm run desktop:dev:embedded
 
-# 4. 当前机器一键打包
+# 4. Package the app for the current machine
 npm run package:current
 ```
 
-配置文件默认位于 `~/.agentforge-desktop/conf/config.json`（Agent 配置）与 `~/.agentforge-desktop/conf/models.json`（模型配置）。
-SQLite 数据库位于 `~/.agentforge-desktop/data/agentforge-desktop.db`。
-
-## 已实现能力
-
-- 工作台：左侧会话历史、右侧对话详情、置顶/重命名/删除
-- 流式对话：`session / think / resp / tool_call / resp_end / error`
-- 历史消息事件重放
-- 右上角模型选择、调试/优雅双模式、设置抽屉
-- 模型配置：增删改查、连通性测试、Function Call 测试
-- Agent 配置：模型集合、默认模型、系统提示词、记忆窗口、保存并初始化
-- 配置保存直接写入 `conf/config.json` / `conf/models.json`，手动编辑后自动热加载
-- 版本化增量 SQL + 启动自动升级 + `bin/upgrade-sqlite.sh`
-- Electron 内置 JRE 8 + JAR，一键打包 macOS arm64/x64、Windows x64
-
-## 打包
+If Electron downloads are slow, use a mirror:
 
 ```bash
-# 当前机器
+ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install
+```
+
+The Vite dev server runs on `127.0.0.1:1420` and proxies `/api` to `127.0.0.1:43179`. Point it elsewhere with `VITE_PROXY_TARGET`.
+
+## Configuration and Data
+
+| Item | Default location |
+| --- | --- |
+| Agent config | `~/.agentforge-desktop/conf/config.json` |
+| Model config | `~/.agentforge-desktop/conf/models.json` |
+| SQLite database | `~/.agentforge-desktop/data/agentforge-desktop.db` |
+| Logs | `~/.agentforge-desktop/logs/` |
+| Workspace | `~/.agentforge-desktop/workspace/` |
+
+Override the data root with `AGENTFORGE_DESKTOP_ROOT_DIR`, or the config file with `AGENTFORGE_DESKTOP_CONFIG`. API keys can be seeded through `AGENTFORGE_DESKTOP_MODEL_API_KEY`.
+
+Existing installations are migrated automatically: a legacy `config.json` is split into `conf/config.json` and `conf/models.json`.
+
+## Packaging
+
+```bash
+# Current machine
 npm run package:current
 
-# macOS 双架构
+# macOS, both architectures
 npm run package:mac -- --arch arm64
 npm run package:mac -- --arch intel
 
-# Windows x64（在 Windows 构建机上）
+# Windows x64 (on a Windows build machine)
 npm run package:win-x64
 ```
 
-macOS 本地打包会使用 `node_modules/electron/dist` 作为 Electron 发行目录，
-避免重新从网络下载。JRE 8 路径可通过 `packaging.config.local.json` 覆盖：
+macOS local packaging reuses `node_modules/electron/dist` instead of downloading Electron again. JRE locations can be overridden in `packaging.config.local.json`:
 
 ```json
 {
@@ -85,12 +157,23 @@ macOS 本地打包会使用 `node_modules/electron/dist` 作为 Electron 发行�
 }
 ```
 
-## 升级 SQL
+Use `npm run package:win-x64:cross` to build the Windows artifact from macOS, and `scripts/verify/*.mjs` to validate the produced package.
+
+## Database Migrations
 
 ```bash
 cd agentforge-desktop-server
-./bin/upgrade-sqlite.sh            # 执行未执行脚本
-./bin/upgrade-sqlite.sh --dry-run  # 只查看待执行脚本
+./bin/upgrade-sqlite.sh            # apply pending scripts
+./bin/upgrade-sqlite.sh --dry-run  # list pending scripts only
 ```
 
-正常用户启动桌面端时，Java 内置迁移器会自动执行增量 SQL，无需手动操作。
+The embedded migrator applies versioned SQL automatically at startup, records each script with a SHA-256 checksum, and aborts startup if an already-applied script has changed.
+
+## Documentation
+
+- [Design and implementation notes](docs/桌面版agent工作台设计实现/README.md)
+- [Local development and verification commands](docs/桌面版agent工作台设计实现/快捷命令与联调验证.md)
+- [Embedded desktop startup guide](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/桌面端内置启动-desktop-dev-embedded.md)
+- [Packaging for all three targets](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/快捷一键打包-三端适配实现详解.md)
+- [Unified logging](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/AgentForge-Desktop日志统一管控详解.md)
+- [Startup initialization and SQLite migrations](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/安装后启动初始化与SQLite增量SQL迁移详解.md)
