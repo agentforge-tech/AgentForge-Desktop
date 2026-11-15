@@ -7,21 +7,22 @@
   "main": "electron/main.mjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
-    "desktop:dev": "node scripts/desktop-dev.mjs",
-    "desktop:dev:embedded": "npm run build:server && npm run runtime:server && node scripts/desktop-dev.mjs --embedded",
+    "doctor": "node scripts/doctor.mjs",
+    "desktop:dev": "node scripts/dev/desktop-dev.mjs",
+    "desktop:dev:embedded": "npm run build:server && npm run runtime:server && node scripts/dev/desktop-dev.mjs --embedded",
     "build": "vite build",
-    "build:server": "node scripts/build-server.mjs",
-    "build:server:clean": "node scripts/build-server.mjs --clean",
-    "runtime:server": "node scripts/prepare-server.mjs",
-    "runtime:jre:mac-arm64": "node scripts/prepare-jre.mjs mac-arm64",
-    "runtime:jre:mac-x64": "node scripts/prepare-jre.mjs mac-x64",
-    "runtime:jre:win-x64": "node scripts/prepare-jre.mjs win-x64",
-    "package:current": "node scripts/package-current.mjs",
-    "package:mac": "node scripts/package-mac.mjs",
-    "package:mac-arm64": "node scripts/package-desktop.mjs mac-arm64",
-    "package:mac-x64": "node scripts/package-desktop.mjs mac-x64",
-    "package:win-x64": "node scripts/package-desktop.mjs win-x64",
-    "package:win-x64:cross": "node scripts/package-desktop.mjs win-x64 --cross"
+    "build:server": "node scripts/build/build-server.mjs",
+    "build:server:clean": "node scripts/build/build-server.mjs --clean",
+    "runtime:server": "node scripts/build/prepare-server.mjs",
+    "runtime:jre:mac-arm64": "node scripts/build/prepare-jre.mjs mac-arm64",
+    "runtime:jre:mac-x64": "node scripts/build/prepare-jre.mjs mac-x64",
+    "runtime:jre:win-x64": "node scripts/build/prepare-jre.mjs win-x64",
+    "package:current": "node scripts/package/package-current.mjs",
+    "package:mac": "node scripts/package/package-mac.mjs",
+    "package:mac-arm64": "node scripts/package/package-desktop.mjs mac-arm64",
+    "package:mac-x64": "node scripts/package/package-desktop.mjs mac-x64",
+    "package:win-x64": "node scripts/package/package-desktop.mjs win-x64",
+    "package:win-x64:cross": "node scripts/package/package-desktop.mjs win-x64 --cross"
   },
   "dependencies": {
     "dompurify": "^3.0.0",
@@ -83,7 +84,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
-    "afterPack": "scripts/after-pack-mac.mjs"
+    "afterPack": "scripts/package/after-pack-mac.mjs"
   },
   "author": "AgentForge"
 }

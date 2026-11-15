@@ -303,7 +303,7 @@
 .conversation-stage:not(.has-messages) .composer {
   border-color: #e2e7ef;
   border-radius: 24px;
-  padding: 8px 8px 8px 16px;
+  padding: 16px;
   box-shadow: 0 2px 14px rgba(23, 43, 77, 0.05);
 }
 
@@ -544,14 +544,15 @@
 }
 
 .composer {
+  position: relative;
   max-width: 860px;
   margin: 0 auto;
   display: flex;
-  align-items: flex-end;
-  gap: 10px;
+  flex-direction: column;
+  gap: 12px;
   border: 1px solid #d1d5db;
-  border-radius: 14px;
-  padding: 8px 8px 8px 14px;
+  border-radius: 20px;
+  padding: 14px 62px 10px 14px;
   background: #fff;
   box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
 }
@@ -562,20 +563,54 @@
 }
 
 .composer textarea {
-  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
   border: 0;
   outline: none;
   resize: none;
   font-size: 14px;
   line-height: 1.6;
   max-height: 140px;
-  min-height: 24px;
-  padding: 4px 0;
+  min-height: 74px;
+  padding: 0;
   background: transparent;
   color: #111827;
 }
 
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+}
+
+.workspace-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 70%;
+  border: 0;
+  padding: 5px 4px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workspace-picker span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-picker:hover {
+  color: #374151;
+}
+
 .send-btn {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
   width: 34px;
   height: 34px;
   border: 0;

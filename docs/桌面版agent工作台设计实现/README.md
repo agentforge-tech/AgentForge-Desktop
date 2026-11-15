@@ -84,7 +84,7 @@
 2. 桌面端需要 SQLite、单用户、Token 鉴权、动态端口、内置 JRE 等定制。
 3. 移植量可控：核心是 4 张表（迁移记录 + 会话 + 消息 + 记忆）、5 个 Controller、2 个中间件、1 个 Agent 工厂。
 
-**前置条件**：AgentForge 核心构件当前以 `1.0.0-SNAPSHOT` 本地安装（README 明确说明在首次发布到 Maven Central 前使用 `mvn clean install -DskipTests`）。构建脚本会自动检测并安装，见第 8 节。
+**前置条件**：AgentForge 核心构件以 `1.0.0-SNAPSHOT` 从本地源码安装，构建脚本会自动检测并安装，见第 8 节。
 
 ---
 
@@ -130,7 +130,8 @@
 | 前端开发端口 | `1420`（Vite，strictPort 自动顺延） |
 | Token Header | `X-AgentForge-Desktop-Token` |
 | 数据根目录 | `~/.agentforge-desktop`（可用 `AGENTFORGE_DESKTOP_ROOT_DIR` 覆盖） |
-| 主配置 | `~/.agentforge-desktop/config.json`（模型 + Agent） |
+| Agent 配置 | `~/.agentforge-desktop/conf/config.json` |
+| 模型配置 | `~/.agentforge-desktop/conf/models.json` |
 | SQLite | `~/.agentforge-desktop/data/agentforge-desktop.db` |
 | 日志 | `~/.agentforge-desktop/logs/` |
 | 工作区（预留） | `~/.agentforge-desktop/workspace/` |
@@ -143,7 +144,7 @@
 AGENTFORGE_DESKTOP_SERVER_URL     连接外部后端（开发调试）
 AGENTFORGE_DESKTOP_SERVER_TOKEN   外部后端 Token（可空）
 AGENTFORGE_DESKTOP_ROOT_DIR       数据根目录
-AGENTFORGE_DESKTOP_CONFIG         主配置文件路径（默认 <root>/config.json）
+AGENTFORGE_DESKTOP_CONFIG         主配置文件路径（默认 <root>/conf/config.json）
 AGENTFORGE_DESKTOP_MODEL_API_KEY  模型密钥默认值（config.json 中 apiKey 为空时使用）
 AGENTFORGE_DESKTOP_PORT           固定端口
 AGENTFORGE_DESKTOP_JAVA_HOME      开发期指定 JDK
@@ -435,7 +436,7 @@ CREATE TABLE IF NOT EXISTS ai_agent_memory (
 - **索引约定**：业务表只保留 `id` 主键，不创建二级索引或唯一索引。
   `memory_id`、`aid` 的唯一性由服务层与配置文件保证。
   桌面端为单用户、本地小数据量，避免额外索引维护成本；v1 接受顺序扫描。
-- **配置不落库**：模型配置与 Agent 配置都在 `<root>/config.json`，不建 `ai_model_config` / `ai_agent_config` 表。
+- **配置不落库**：Agent 配置在 `<root>/conf/config.json`，模型配置在 `<root>/conf/models.json`，不建 `ai_model_config` / `ai_agent_config` 表。
 - `ai_agent_trace_snapshot` v1 不建表，预留后续增量脚本。
 - 时间字段使用 `TEXT`，沿用 `agentforge-service` 的 `SqliteDateTypeHandler` 思路，保证 `Date` 映射。
 - 会话消息的 `session_id` 指向主键 `ai_agent_session.id`，与 `agentforge-service` 保持一致。
@@ -446,9 +447,10 @@ CREATE TABLE IF NOT EXISTS ai_agent_memory (
 
 | 项 | 值 |
 | --- | --- |
-| 主配置 | `<root>/config.json`，默认 `~/.agentforge-desktop/config.json` |
-| 默认模板 | JAR 内 `defaults/config.json`，首次启动复制到主配置路径 |
-| 备份 | `<root>/config.json.bak`（每次成功写入前保留上一版） |
+| Agent 配置 | `<root>/conf/config.json`，默认 `~/.agentforge-desktop/conf/config.json` |
+| 模型配置 | `<root>/conf/models.json`，默认 `~/.agentforge-desktop/conf/models.json` |
+| 默认模板 | JAR 内 `defaults/config.json` 与 `defaults/models.json`，首次启动复制到对应路径 |
+| 备份 | `*.json.bak`（每次成功写入前保留上一版） |
 | 覆盖路径 | `AGENTFORGE_DESKTOP_CONFIG` 环境变量 |
 
 #### 完整 JSON 结构
@@ -542,7 +544,7 @@ CREATE TABLE IF NOT EXISTS ai_agent_memory (
   → DesktopConfigStore.save()
        1. 写 config.json.tmp
        2. fsync + 原子 rename
-       3. 旧文件备份为 config.json.bak
+       3. 旧文件备份为 *.json.bak
        4. 更新内存快照
   → 清理运行时缓存
        · 模型变更：清空全部 Agent 实例
@@ -1129,48 +1131,46 @@ local-agent:backend-exit       后端异常退出通知
 {
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
-    "desktop:dev": "node scripts/desktop-dev.mjs",
-    "desktop:dev:embedded": "npm run build:server && npm run runtime:server && node scripts/desktop-dev.mjs --embedded",
+    "doctor": "node scripts/doctor.mjs",
+    "desktop:dev": "node scripts/dev/desktop-dev.mjs",
+    "desktop:dev:embedded": "npm run build:server && npm run runtime:server && node scripts/dev/desktop-dev.mjs --embedded",
 
-    "build:server": "node scripts/build-server.mjs",
-    "build:server:clean": "node scripts/build-server.mjs --clean",
-    "runtime:server": "node scripts/prepare-server.mjs",
-    "runtime:jre:mac-arm64": "node scripts/prepare-jre.mjs mac-arm64",
-    "runtime:jre:mac-x64": "node scripts/prepare-jre.mjs mac-x64",
-    "runtime:jre:win-x64": "node scripts/prepare-jre.mjs win-x64",
+    "build:server": "node scripts/build/build-server.mjs",
+    "build:server:clean": "node scripts/build/build-server.mjs --clean",
+    "runtime:server": "node scripts/build/prepare-server.mjs",
+    "runtime:jre:mac-arm64": "node scripts/build/prepare-jre.mjs mac-arm64",
+    "runtime:jre:mac-x64": "node scripts/build/prepare-jre.mjs mac-x64",
+    "runtime:jre:win-x64": "node scripts/build/prepare-jre.mjs win-x64",
 
     "build": "vite build",
-    "package:current": "node scripts/package-current.mjs",
-    "package:mac": "node scripts/package-mac.mjs",
-    "package:mac-arm64": "node scripts/package-desktop.mjs mac-arm64",
-    "package:mac-x64": "node scripts/package-desktop.mjs mac-x64",
-    "package:win-x64": "node scripts/package-desktop.mjs win-x64",
-    "package:win-x64:cross": "node scripts/package-desktop.mjs win-x64 --cross"
+    "package:current": "node scripts/package/package-current.mjs",
+    "package:mac": "node scripts/package/package-mac.mjs",
+    "package:mac-arm64": "node scripts/package/package-desktop.mjs mac-arm64",
+    "package:mac-x64": "node scripts/package/package-desktop.mjs mac-x64",
+    "package:win-x64": "node scripts/package/package-desktop.mjs win-x64",
+    "package:win-x64:cross": "node scripts/package/package-desktop.mjs win-x64 --cross"
   }
 }
 ```
 
-### 8.2 `build-server.mjs`
+### 8.2 `scripts/build/build-server.mjs`
 
 ```text
 1. 定位 mvn（AGENTFORGE_MAVEN / PATH / Homebrew / IDEA 内置）
 2. 解析 AGENTFORGE_HOME（默认 ../AgentForge，可用环境变量覆盖）
-3. 检查 ~/.m2 是否已有 agentforge-agent-core:1.0.0-SNAPSHOT
-   不存在或 AGENTFORGE_REBUILD_CORE=1 时：
-     mvn -f $AGENTFORGE_HOME/pom.xml \
-         -pl agentforge-model,agentforge-framework -am \
-         install -DskipTests
+3. 检查本地仓库是否已有 agentforge-agent-core:1.0.0-SNAPSHOT
+   不存在或 AGENTFORGE_REBUILD_CORE=1 时从 AgentForge 源码安装
 4. mvn -f ../agentforge-desktop-server/pom.xml clean package -DskipTests
 5. 产物：agentforge-desktop-server/target/agentforge-desktop-server.jar
 ```
 
 > 若后续核心构件发布到 Maven Central，第 3 步自动跳过。
 
-### 8.3 `prepare-server.mjs`
+### 8.3 `scripts/build/prepare-server.mjs`
 
 复制 JAR 到 `runtime/server/agentforge-desktop-server.jar`。
 
-### 8.4 `prepare-jre.mjs`（内置 JRE 8）
+### 8.4 `scripts/build/prepare-jre.mjs`（内置 JRE 8）
 
 - 支持 `mac-arm64 / mac-x64 / win-x64` 三个目标。
 - 通过 `packaging.config.local.json` 的 `jreHomes.<target>` 或 `AGENTFORGE_DESKTOP_JRE_HOME_*` 指定 JRE 8 目录（推荐 Temurin / Zulu）。
@@ -1230,7 +1230,7 @@ npm run package:win-x64:cross
 - macOS 本地未配置 Developer ID 时自动做 ad-hoc 签名；公开分发仍需 Developer ID + notarization。
 - Windows 公开分发建议配置代码签名证书，避免 SmartScreen 拦截。
 
-### 8.6 `prepare-windows-jre.mjs`（Windows 交叉构建）
+### 8.6 `scripts/build/prepare-windows-jre.mjs`（Windows 交叉构建）
 
 在 macOS 上准备 Windows x64 JRE 8：
 
@@ -1244,21 +1244,21 @@ npm run package:win-x64:cross
 6. 复制到 runtime/jre
 ```
 
-`check-windows-cross-env.mjs` 在执行 `package:win-x64:cross` 前检查：
+`scripts/package/check-windows-cross-env.mjs` 在执行 `package:win-x64:cross` 前检查：
 
 - 当前系统必须是 macOS；
 - 存在 `wine64` / `wine`，或 Docker Desktop 可用（推荐 `electronuserland/builder:wine`）。
 
-### 8.7 `package-desktop.mjs`
+### 8.7 `scripts/package/package-desktop.mjs`
 
 ```text
-1. build:server
-2. prepare-server
-3. prepare-jre <target>（win-x64 跨机时走 prepare-windows-jre）
+1. scripts/build/build-server.mjs
+2. scripts/build/prepare-server.mjs
+3. scripts/build/prepare-jre.mjs <target>（win-x64 跨机时走 prepare-windows-jre）
 4. vite build
 5. electron-builder 按目标平台打包
-6. verify-mac-package / verify-win-package
-7. stage-update-artifacts（可选；v1 未启用自动更新可跳过）
+6. scripts/verify/verify-mac-package.mjs / verify-win-package.mjs
+7. scripts/package/stage-update-artifacts.mjs（可选；v1 未启用自动更新可跳过）
 ```
 
 electron-builder 关键配置：
@@ -1275,7 +1275,7 @@ electron-builder 关键配置：
     { "from": "runtime/jre", "to": "runtime/jre" }
   ],
   "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
-  "afterPack": "scripts/after-pack-mac.mjs",
+  "afterPack": "scripts/package/after-pack-mac.mjs",
   "mac": { "target": ["dmg", "zip"], "category": "public.app-category.developer-tools" },
   "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
   "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
@@ -1496,20 +1496,26 @@ vite.config.js
 index.html
 electron/main.mjs
 electron/preload.cjs
-scripts/dev-utils.mjs
-scripts/desktop-dev.mjs
-scripts/build-server.mjs
-scripts/prepare-server.mjs
-scripts/prepare-jre.mjs
-scripts/prepare-windows-jre.mjs
-scripts/check-windows-cross-env.mjs
-scripts/package-current.mjs
-scripts/package-mac.mjs
-scripts/package-desktop.mjs
-scripts/verify-mac-package.mjs
-scripts/verify-win-package.mjs
-scripts/after-pack-mac.mjs
-scripts/stage-update-artifacts.mjs
+scripts/doctor.mjs
+scripts/lib/paths.mjs
+scripts/lib/exec.mjs
+scripts/lib/java.mjs
+scripts/lib/maven.mjs
+scripts/lib/ports.mjs
+scripts/lib/proc.mjs
+scripts/dev/desktop-dev.mjs
+scripts/build/build-server.mjs
+scripts/build/prepare-server.mjs
+scripts/build/prepare-jre.mjs
+scripts/build/prepare-windows-jre.mjs
+scripts/package/check-windows-cross-env.mjs
+scripts/package/package-current.mjs
+scripts/package/package-mac.mjs
+scripts/package/package-desktop.mjs
+scripts/package/after-pack-mac.mjs
+scripts/package/stage-update-artifacts.mjs
+scripts/verify/verify-mac-package.mjs
+scripts/verify/verify-win-package.mjs
 src/main.js
 src/App.vue
 src/router/index.js

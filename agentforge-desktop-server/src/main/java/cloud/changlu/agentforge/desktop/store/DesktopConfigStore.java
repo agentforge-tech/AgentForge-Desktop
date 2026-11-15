@@ -1,6 +1,7 @@
 package cloud.changlu.agentforge.desktop.store;
 
 import cloud.changlu.agentforge.desktop.config.DesktopProperties;
+import cloud.changlu.agentforge.desktop.config.DesktopAgentPrompt;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -8,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -45,10 +47,17 @@ public class DesktopConfigStore {
     private RootConfig root;
     private long lastModified = -1L;
     private long lastSize = -1L;
+    private long modelsLastModified = -1L;
+    private long modelsLastSize = -1L;
 
     public DesktopConfigStore(DesktopProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+    }
+
+    @PostConstruct
+    public void init() {
+        ensureLoaded();
     }
 
     public synchronized void ensureLoaded() {
@@ -56,15 +65,32 @@ public class DesktopConfigStore {
             return;
         }
         Path file = properties.configPath();
+        Path modelsFile = properties.modelsPath();
         try {
             Files.createDirectories(file.getParent());
+            migrateLegacyConfig(file);
             if (!Files.exists(file)) {
-                copyDefault(file);
+                copyDefaultConfig(file);
             }
             root = load(file);
+            if (migrateAgentPromptStorage(root)) {
+                writeConfig(file, root);
+                log.info("desktop Agent prompt storage migrated to user-instructions format");
+            }
+            boolean legacyModels = !Files.exists(modelsFile) && !root.models.isEmpty();
+            if (Files.exists(modelsFile)) {
+                root.models = loadModels(modelsFile);
+            } else if (legacyModels) {
+                writeModels(modelsFile, root.models);
+                writeConfig(file, root);
+            } else {
+                copyDefaultModels(modelsFile);
+            }
             refreshStamp(file);
+            refreshModelsStamp(modelsFile);
             revision.incrementAndGet();
             log.info("desktop config loaded: {}", file);
+            log.info("desktop models loaded: {}", modelsFile);
         } catch (Exception e) {
             throw new IllegalStateException("failed to load desktop config: " + file, e);
         }
@@ -73,17 +99,30 @@ public class DesktopConfigStore {
     public synchronized boolean reloadIfChanged() {
         ensureLoaded();
         Path file = properties.configPath();
+        Path modelsFile = properties.modelsPath();
         try {
             long modified = Files.getLastModifiedTime(file).toMillis();
             long size = Files.size(file);
-            if (modified == lastModified && size == lastSize) {
+            long modelsModified = Files.getLastModifiedTime(modelsFile).toMillis();
+            long modelsSize = Files.size(modelsFile);
+            if (modified == lastModified
+                    && size == lastSize
+                    && modelsModified == modelsLastModified
+                    && modelsSize == modelsLastSize) {
                 return false;
             }
             RootConfig loaded = load(file);
+            try {
+                loaded.models = loadModels(modelsFile);
+            } catch (Exception e) {
+                log.warn("failed to reload desktop models, keep previous snapshot: {}", modelsFile, e);
+                loaded.models = root.models;
+            }
             root = loaded;
             refreshStamp(file);
+            refreshModelsStamp(modelsFile);
             revision.incrementAndGet();
-            log.info("desktop config reloaded: {}", file);
+            log.info("desktop config reloaded: {} , {}", file, modelsFile);
             return true;
         } catch (Exception e) {
             log.warn("failed to reload desktop config, keep previous snapshot: {}", file, e);
@@ -336,38 +375,56 @@ public class DesktopConfigStore {
         normalize(config);
         validate(config);
         Path file = properties.configPath();
+        Path modelsFile = properties.modelsPath();
         try {
             Files.createDirectories(file.getParent());
-            byte[] bytes = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(config);
-            Path temp = file.resolveSibling(file.getFileName().toString() + ".tmp");
-            try (FileChannel channel =
-                    FileChannel.open(
-                            temp,
-                            StandardOpenOption.CREATE,
-                            StandardOpenOption.WRITE,
-                            StandardOpenOption.TRUNCATE_EXISTING)) {
-                channel.write(ByteBuffer.wrap(bytes));
-                channel.force(true);
-            }
-            Path backup = file.resolveSibling(file.getFileName().toString() + ".bak");
-            if (Files.exists(file)) {
-                Files.copy(file, backup, StandardCopyOption.REPLACE_EXISTING);
-            }
-            try {
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException e) {
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-            }
-            try {
-                Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
-            } catch (UnsupportedOperationException ignored) {
-                // Windows
-            }
+            writeConfig(file, config);
+            writeModels(modelsFile, config.models);
             this.root = config;
             refreshStamp(file);
+            refreshModelsStamp(modelsFile);
             revision.incrementAndGet();
         } catch (IOException e) {
             throw new IllegalStateException("failed to write desktop config: " + file, e);
+        }
+    }
+
+    private void writeConfig(Path file, RootConfig config) throws IOException {
+        byte[] bytes = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(config);
+        writeAtomic(file, bytes);
+    }
+
+    private void writeModels(Path file, List<ModelConfig> models) throws IOException {
+        ModelsConfig config = new ModelsConfig();
+        config.models = models == null ? new ArrayList<ModelConfig>() : models;
+        byte[] bytes = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(config);
+        writeAtomic(file, bytes);
+    }
+
+    private void writeAtomic(Path file, byte[] bytes) throws IOException {
+        Path temp = file.resolveSibling(file.getFileName().toString() + ".tmp");
+        try (FileChannel channel =
+                FileChannel.open(
+                        temp,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.TRUNCATE_EXISTING)) {
+            channel.write(ByteBuffer.wrap(bytes));
+            channel.force(true);
+        }
+        Path backup = file.resolveSibling(file.getFileName().toString() + ".bak");
+        if (Files.exists(file)) {
+            Files.copy(file, backup, StandardCopyOption.REPLACE_EXISTING);
+        }
+        try {
+            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+        }
+        try {
+            Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+        } catch (UnsupportedOperationException ignored) {
+            // Windows
         }
     }
 
@@ -381,7 +438,32 @@ public class DesktopConfigStore {
         return config;
     }
 
-    private void copyDefault(Path file) throws IOException {
+    private List<ModelConfig> loadModels(Path file) throws IOException {
+        byte[] bytes = Files.readAllBytes(file);
+        ModelsConfig config = objectMapper.readValue(bytes, ModelsConfig.class);
+        if (config == null || config.models == null) {
+            return new ArrayList<ModelConfig>();
+        }
+        return config.models;
+    }
+
+    private void migrateLegacyConfig(Path file) throws IOException {
+        Path legacy = properties.legacyConfigPath();
+        if (legacy.equals(file)) {
+            return;
+        }
+        if (!Files.exists(file) && Files.exists(legacy)) {
+            Files.move(legacy, file);
+            log.info("desktop config migrated from legacy path: {} -> {}", legacy, file);
+            Path legacyBackup = legacy.resolveSibling(legacy.getFileName().toString() + ".bak");
+            Path backup = file.resolveSibling(file.getFileName().toString() + ".bak");
+            if (!Files.exists(backup) && Files.exists(legacyBackup)) {
+                Files.move(legacyBackup, backup);
+            }
+        }
+    }
+
+    private void copyDefaultConfig(Path file) throws IOException {
         ClassPathResource resource = new ClassPathResource("defaults/config.json");
         if (!resource.exists()) {
             RootConfig empty = new RootConfig();
@@ -395,9 +477,28 @@ public class DesktopConfigStore {
         log.info("desktop config initialized from defaults: {}", file);
     }
 
+    private void copyDefaultModels(Path file) throws IOException {
+        ClassPathResource resource = new ClassPathResource("defaults/models.json");
+        if (!resource.exists()) {
+            ModelsConfig empty = new ModelsConfig();
+            byte[] bytes = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(empty);
+            Files.write(file, bytes);
+            return;
+        }
+        try (InputStream input = resource.getInputStream()) {
+            Files.copy(input, file, StandardCopyOption.REPLACE_EXISTING);
+        }
+        log.info("desktop models initialized from defaults: {}", file);
+    }
+
     private void refreshStamp(Path file) throws IOException {
         lastModified = Files.getLastModifiedTime(file).toMillis();
         lastSize = Files.size(file);
+    }
+
+    private void refreshModelsStamp(Path file) throws IOException {
+        modelsLastModified = Files.getLastModifiedTime(file).toMillis();
+        modelsLastSize = Files.size(file);
     }
 
     private void normalize(RootConfig config) {
@@ -474,6 +575,24 @@ public class DesktopConfigStore {
         }
     }
 
+    private boolean migrateAgentPromptStorage(RootConfig config) {
+        boolean changed = false;
+        for (AgentConfig agent : config.agents) {
+            if (agent.agentConfig != null) {
+                String normalized =
+                        DesktopAgentPrompt.normalizeUserInstructions(
+                                agent.agentConfig.systemPrompt);
+                if (normalized.equals(agent.agentConfig.systemPrompt)) {
+                    continue;
+                }
+                agent.agentConfig.systemPrompt = normalized;
+                agent.modifyTime = now();
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
     private void validate(RootConfig config) {
         Set<Long> modelIds = new HashSet<Long>();
         for (ModelConfig model : config.models) {
@@ -544,8 +663,16 @@ public class DesktopConfigStore {
     public static class RootConfig {
         public Integer version = 1;
         public String defaultAid;
+
+        @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
         public List<ModelConfig> models = new ArrayList<ModelConfig>();
+
         public List<AgentConfig> agents = new ArrayList<AgentConfig>();
+    }
+
+    public static class ModelsConfig {
+        public Integer version = 1;
+        public List<ModelConfig> models = new ArrayList<ModelConfig>();
     }
 
     public static class ModelConfig {

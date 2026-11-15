@@ -3,6 +3,7 @@ package cloud.changlu.agentforge.desktop.modules.agent.service;
 import cloud.changlu.agentforge.desktop.modules.agent.domain.AgentConfigUpsertReq;
 import cloud.changlu.agentforge.desktop.modules.agent.domain.AgentConfigVo;
 import cloud.changlu.agentforge.desktop.modules.agent.runtime.AgentRuntimeService;
+import cloud.changlu.agentforge.desktop.config.DesktopAgentPrompt;
 import cloud.changlu.agentforge.desktop.store.DesktopConfigStore;
 import org.springframework.stereotype.Service;
 
@@ -11,8 +12,6 @@ import java.util.List;
 
 @Service
 public class AgentConfigService {
-
-    private static final String DEFAULT_PROMPT = "你是一名专业的 AI 助手，请准确、清晰地回答用户问题。";
 
     private final DesktopConfigStore configStore;
     private final AgentRuntimeService runtimeService;
@@ -35,7 +34,13 @@ public class AgentConfigService {
         if (agent == null) {
             throw new IllegalArgumentException("Agent 不存在或已被删除: " + aid);
         }
-        return toVo(agent);
+        AgentConfigVo vo = toVo(agent);
+        vo.setBuiltInSystemPrompt(runtimeService.builtInSystemPrompt(agent.aid));
+        return vo;
+    }
+
+    public String builtInSystemPrompt() {
+        return runtimeService.builtInSystemPrompt(configStore.defaultAid());
     }
 
     public AgentConfigVo upsert(AgentConfigUpsertReq req) {
@@ -51,9 +56,7 @@ public class AgentConfigService {
 
         DesktopConfigStore.AgentSettings settings = new DesktopConfigStore.AgentSettings();
         settings.systemPrompt =
-                req.getSystemPrompt() == null || req.getSystemPrompt().trim().isEmpty()
-                        ? DEFAULT_PROMPT
-                        : req.getSystemPrompt().trim();
+                DesktopAgentPrompt.normalizeUserInstructions(req.getSystemPrompt());
         settings.chatModel = new DesktopConfigStore.ChatModelBinding();
         settings.chatModel.defaultModelId = req.getDefaultModelId();
         settings.chatModel.modelIds =
@@ -76,6 +79,7 @@ public class AgentConfigService {
         runtimeService.evict(saved.aid);
 
         AgentConfigVo vo = toVo(saved);
+        vo.setBuiltInSystemPrompt(runtimeService.builtInSystemPrompt(saved.aid));
         try {
             DesktopConfigStore.ModelConfig model =
                     configStore.findModel(saved.agentConfig.chatModel.defaultModelId);
@@ -107,7 +111,8 @@ public class AgentConfigService {
         vo.setModifyTime(agent.modifyTime);
         vo.setExperConfig(agent.experConfig);
         if (agent.agentConfig != null) {
-            vo.setSystemPrompt(agent.agentConfig.systemPrompt);
+            vo.setSystemPrompt(
+                    DesktopAgentPrompt.normalizeUserInstructions(agent.agentConfig.systemPrompt));
             if (agent.agentConfig.chatModel != null) {
                 vo.setDefaultModelId(agent.agentConfig.chatModel.defaultModelId);
                 vo.setModelIds(new ArrayList<Long>(agent.agentConfig.chatModel.modelIds));

@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { uiDir } from '../lib/paths.mjs'
 
-const releaseDir = path.resolve('release')
+const releaseDir = path.join(uiDir, 'release')
 const unpacked = path.join(releaseDir, 'win-unpacked')
 const java = path.join(unpacked, 'resources', 'runtime', 'jre', 'bin', 'java.exe')
 const jar = path.join(unpacked, 'resources', 'runtime', 'server', 'agentforge-desktop-server.jar')

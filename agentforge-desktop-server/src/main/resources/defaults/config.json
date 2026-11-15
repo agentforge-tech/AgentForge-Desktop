@@ -1,7 +1,6 @@
 {
   "version": 1,
   "defaultAid": "agt_default",
-  "models": [],
   "agents": [
     {
       "aid": "agt_default",
@@ -10,7 +9,7 @@
       "avatar": "/logo.png",
       "description": "AgentForge Desktop 默认 AI 助手",
       "agentConfig": {
-        "systemPrompt": "你是一名专业的 AI 助手，请准确、清晰地回答用户问题。",
+        "systemPrompt": "",
         "chatModel": {
           "default_model_id": null,
           "model_ids": []

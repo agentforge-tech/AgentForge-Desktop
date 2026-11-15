@@ -12,6 +12,7 @@ public class AgentConfigVo {
     private Long defaultModelId;
     private List<Long> modelIds;
     private String systemPrompt;
+    private String builtInSystemPrompt;
     private Integer chatMemoryType;
     private Integer chatMemoryMaxMessages;
     private String createTime;
@@ -36,6 +37,8 @@ public class AgentConfigVo {
     public void setModelIds(List<Long> modelIds) { this.modelIds = modelIds; }
     public String getSystemPrompt() { return systemPrompt; }
     public void setSystemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; }
+    public String getBuiltInSystemPrompt() { return builtInSystemPrompt; }
+    public void setBuiltInSystemPrompt(String builtInSystemPrompt) { this.builtInSystemPrompt = builtInSystemPrompt; }
     public Integer getChatMemoryType() { return chatMemoryType; }
     public void setChatMemoryType(Integer chatMemoryType) { this.chatMemoryType = chatMemoryType; }
     public Integer getChatMemoryMaxMessages() { return chatMemoryMaxMessages; }

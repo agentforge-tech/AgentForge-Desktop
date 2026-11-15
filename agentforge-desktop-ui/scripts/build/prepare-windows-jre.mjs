@@ -3,12 +3,13 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { resolveFromUi, runtimeDir } from '../lib/paths.mjs'
 
-const configPath = path.resolve(process.env.AGENTFORGE_PACKAGING_CONFIG || 'packaging.config.local.json')
-const cacheDir = path.resolve('.cache', 'windows-jre')
+const configPath = resolveFromUi(process.env.AGENTFORGE_PACKAGING_CONFIG || 'packaging.config.local.json')
+const cacheDir = resolveFromUi('.cache', 'windows-jre')
 const archive = path.join(cacheDir, 'jre8-win-x64.zip')
 const extracted = path.join(cacheDir, 'extracted')
-const output = path.resolve('runtime', 'jre')
+const output = path.join(runtimeDir, 'jre')
 const url = process.env.AGENTFORGE_WINDOWS_JRE_URL
   || 'https://api.adoptium.net/v3/binary/latest/8/ga/windows/x64/jre/hotspot/normal/eclipse?project=jdk'
 

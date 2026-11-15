@@ -3,7 +3,7 @@
     <header class="page-header">
       <div>
         <h1>模型配置</h1>
-        <p>模型配置保存在本地 config.json，保存后可直接在工作台选择。</p>
+        <p>模型配置保存在 conf/models.json，保存后可直接在工作台选择。</p>
       </div>
       <el-button type="primary" icon="el-icon-plus" @click="openCreate">新增模型</el-button>
     </header>
@@ -42,7 +42,7 @@
           <el-input v-model="form.url" placeholder="https://tokenrhythm.studio/v1" />
         </el-form-item>
         <el-form-item label="API Key">
-          <el-input v-model="form.apiKey" show-password placeholder="留空则沿用已有密钥" />
+          <el-input v-model="form.apiKey" show-password placeholder="请输入 API Key" />
         </el-form-item>
       </el-form>
       <div slot="footer">
@@ -97,7 +97,7 @@ export default {
       this.dialogVisible = true
     },
     openEdit(row) {
-      this.form = { ...row, apiKey: '' }
+      this.form = { ...row }
       this.dialogVisible = true
     },
     async save() {

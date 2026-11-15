@@ -34,6 +34,7 @@ public class LocalDesktopController {
         data.put("ready", true);
         data.put("workspace", properties.rootPath().toString());
         data.put("config", properties.configPath().toString());
+        data.put("models", properties.modelsPath().toString());
         data.put("db", properties.dbPath().toString());
         data.put("version", "0.1.0");
         return data;

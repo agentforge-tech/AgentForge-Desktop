@@ -7,13 +7,13 @@ import cloud.changlu.agentforge.agent.stream.PartialThinking;
 import cloud.changlu.agentforge.model.chat.message.ToolExecutionRequest;
 import cloud.changlu.agentforge.model.chat.request.ChatRequest;
 import cloud.changlu.agentforge.model.chat.response.ChatResponse;
-import cloud.changlu.agentforge.desktop.protocol.StreamEventResponse;
-import cloud.changlu.agentforge.desktop.protocol.ToolCallResult;
-import cloud.changlu.agentforge.desktop.protocol.processor.AiErrorProcessor;
-import cloud.changlu.agentforge.desktop.protocol.processor.AiResponseProcessor;
-import cloud.changlu.agentforge.desktop.protocol.processor.AiSessionProcessor;
-import cloud.changlu.agentforge.desktop.protocol.processor.think.AiThinkProcessor;
-import cloud.changlu.agentforge.desktop.protocol.processor.tool.AiToolCallProcessor;
+import cloud.changlu.agentforge.service.protocol.StreamEventResponse;
+import cloud.changlu.agentforge.service.protocol.ToolCallResult;
+import cloud.changlu.agentforge.service.protocol.processor.AiErrorProcessor;
+import cloud.changlu.agentforge.service.protocol.processor.AiResponseProcessor;
+import cloud.changlu.agentforge.service.protocol.processor.AiSessionProcessor;
+import cloud.changlu.agentforge.service.protocol.processor.think.AiThinkProcessor;
+import cloud.changlu.agentforge.service.protocol.processor.tool.AiToolCallProcessor;
 
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 

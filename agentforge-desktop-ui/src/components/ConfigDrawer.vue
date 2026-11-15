@@ -20,58 +20,38 @@
           <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
           <span>默认 Agent 配置</span>
         </button>
-        <div class="settings-nav-label">控制台</div>
-        <button type="button" :class="{ active: tab === 'my-agents' }" @click="tab = 'my-agents'">
-          <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3.5 19c.5-4 2.4-6 5.5-6s5 2 5.5 6M14 14c3.6-.7 5.7 1 6.5 4"/></svg>
-          <span>我的 Agent</span>
-        </button>
       </nav>
 
       <div class="settings-content">
-        <section v-show="tab === 'my-agents'" class="settings-section">
-          <header class="settings-section-head">
-            <b>我的 Agent</b>
-            <span>选择一个 Agent 开始对话，或进入它的详细配置</span>
-          </header>
-          <div class="my-agent-list">
-            <button
-              v-for="agent in agents"
-              :key="agent.aid"
-              type="button"
-              class="my-agent-card"
-              :class="{ active: agent.aid === aid }"
-              @click="chooseAgent(agent)"
-            >
-              <span class="my-agent-avatar"><img :src="agent.avatar || '/logo.png'" :alt="agent.name || 'AgentForge'" /></span>
-              <span class="my-agent-main"><b>{{ agent.name || '未命名 Agent' }}</b><small>{{ agent.description || '暂无描述' }}</small></span>
-              <span v-if="agent.aid === aid" class="my-agent-current">当前</span>
-              <span class="my-agent-edit" role="button" tabindex="0" @click.stop="editAgent(agent)" @keydown.enter.stop="editAgent(agent)">编辑</span>
-            </button>
-          </div>
-          <div class="my-agent-footer">
-            <el-button icon="el-icon-plus" type="primary" @click="createAgent">创建 Agent</el-button>
-          </div>
-        </section>
-
         <section v-show="tab === 'agent'" class="settings-section">
           <header class="settings-section-head"><b>默认 Agent 配置</b><span>管理当前默认 Agent 的运行参数</span></header>
-          <el-form label-position="top" size="small" class="agent-summary-form">
-            <el-form-item label="当前 Agent">
+          <el-form label-position="top" size="small" class="agent-config-form">
+            <el-form-item label="当前 Agent" class="form-span-2">
               <el-select :value="aid" placeholder="选择 Agent" style="width: 100%" @change="$emit('select-agent', $event)">
                 <el-option v-for="agent in agents" :key="agent.aid" :label="agent.name" :value="agent.aid" />
               </el-select>
             </el-form-item>
+            <el-form-item label="名称"><el-input v-model="agentForm.name" placeholder="Agent 名称" /></el-form-item>
+            <el-form-item label="记忆最大消息数"><el-input-number v-model="agentForm.chatMemoryMaxMessages" :min="1" :max="100000" /></el-form-item>
+            <el-form-item label="描述" class="form-span-2"><el-input v-model="agentForm.description" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item label="可用模型">
+              <el-select v-model="agentForm.modelIds" multiple placeholder="选择可用模型" style="width: 100%">
+                <el-option v-for="model in models" :key="model.id" :label="model.name" :value="model.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="默认模型">
+              <el-select v-model="agentForm.defaultModelId" placeholder="选择默认模型" style="width: 100%">
+                <el-option v-for="model in selectableModels" :key="model.id" :label="model.name" :value="model.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="内置系统提示词" class="form-span-2">
+              <el-input :value="agentForm.builtInSystemPrompt" type="textarea" :rows="12" readonly resize="vertical" />
+              <div class="built-in-prompt-hint">由 Desktop 基础规则、当前本机环境和 Harness Runtime 工作区约束自动组成。</div>
+            </el-form-item>
+            <el-alert v-if="initError" class="form-span-2" :title="initError" type="warning" :closable="false" show-icon />
           </el-form>
-          <div v-if="currentAgent" class="agent-config-summary">
-            <div class="agent-config-summary-head">
-              <span class="my-agent-avatar"><img :src="currentAgent.avatar || '/logo.png'" :alt="currentAgent.name" /></span>
-              <span class="my-agent-main"><b>{{ currentAgent.name }}</b><small>{{ currentAgent.description || '暂无描述' }}</small></span>
-            </div>
-            <dl>
-              <div><dt>可用模型</dt><dd>{{ agentModelNames }}</dd></div>
-              <div><dt>记忆上限</dt><dd>{{ agentForm.chatMemoryMaxMessages || 1000 }} 条</dd></div>
-            </dl>
-            <el-button type="primary" @click="editAgent(currentAgent)">编辑配置</el-button>
+          <div class="agent-config-actions">
+            <el-button type="primary" :loading="saving" :disabled="!aid" @click="saveAgent">保存</el-button>
           </div>
         </section>
 
@@ -109,36 +89,6 @@
     </div>
 
     <el-dialog
-      :title="agentForm.aid ? '编辑 Agent' : '新增 Agent'"
-      :visible.sync="agentEditorVisible"
-      width="560px"
-      append-to-body
-      custom-class="settings-editor-dialog"
-    >
-      <el-form label-position="top" size="small" class="compact-editor-form">
-        <el-form-item label="名称"><el-input v-model="agentForm.name" placeholder="Agent 名称" /></el-form-item>
-        <el-form-item label="记忆最大消息数"><el-input-number v-model="agentForm.chatMemoryMaxMessages" :min="1" :max="100000" /></el-form-item>
-        <el-form-item label="描述" class="form-span-2"><el-input v-model="agentForm.description" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="可用模型">
-          <el-select v-model="agentForm.modelIds" multiple placeholder="选择可用模型" style="width: 100%">
-            <el-option v-for="model in models" :key="model.id" :label="model.name" :value="model.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="默认模型">
-          <el-select v-model="agentForm.defaultModelId" placeholder="选择默认模型" style="width: 100%">
-            <el-option v-for="model in selectableModels" :key="model.id" :label="model.name" :value="model.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="系统提示词" class="form-span-2"><el-input v-model="agentForm.systemPrompt" type="textarea" :rows="4" /></el-form-item>
-        <el-alert v-if="initError" class="form-span-2" :title="initError" type="warning" :closable="false" show-icon />
-      </el-form>
-      <span slot="footer">
-        <el-button @click="agentEditorVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveAgent">保存并初始化</el-button>
-      </span>
-    </el-dialog>
-
-    <el-dialog
       :title="modelForm.id ? '编辑模型' : '新增模型'"
       :visible.sync="modelEditorVisible"
       width="520px"
@@ -152,7 +102,7 @@
         </el-form-item>
         <el-form-item label="模型标识" class="form-span-2"><el-input v-model="modelForm.modelName" placeholder="deepseek-flash / claude-sonnet-4" /></el-form-item>
         <el-form-item label="Base URL" class="form-span-2"><el-input v-model="modelForm.url" /></el-form-item>
-        <el-form-item label="API Key" class="form-span-2"><el-input v-model="modelForm.apiKey" show-password placeholder="留空则沿用已有密钥" /></el-form-item>
+        <el-form-item label="API Key" class="form-span-2"><el-input v-model="modelForm.apiKey" show-password placeholder="请输入 API Key" /></el-form-item>
       </el-form>
       <span slot="footer">
         <el-button @click="modelEditorVisible = false">取消</el-button>
@@ -184,7 +134,8 @@ const emptyAgent = () => ({
   type: 1,
   modelIds: [],
   defaultModelId: null,
-  systemPrompt: '你是一名专业的 AI 助手，请准确、清晰地回答用户问题。',
+  systemPrompt: '',
+  builtInSystemPrompt: '',
   chatMemoryType: 1,
   chatMemoryMaxMessages: 1000
 })
@@ -204,24 +155,12 @@ export default {
     savingModel: false,
     models: [],
     agentForm: emptyAgent(),
-    agentEditorVisible: false,
     initError: '',
     modelEditorVisible: false,
     modelForm: emptyModel(),
     activeModelId: null
   }),
   computed: {
-    currentAgent() {
-      return this.agents.find((agent) => agent.aid === this.aid) || null
-    },
-    agentModelNames() {
-      const names = this.agentModels.map((model) => model.name)
-      return names.length ? names.join('、') : '未配置'
-    },
-    agentModels() {
-      const ids = this.agentForm.modelIds || []
-      return this.models.filter((model) => ids.includes(model.id))
-    },
     selectableModels() {
       if (!this.agentForm.modelIds.length) return this.models
       return this.models.filter((model) => this.agentForm.modelIds.includes(model.id))
@@ -242,29 +181,6 @@ export default {
     }
   },
   methods: {
-    chooseAgent(agent) {
-      if (agent.aid !== this.aid) this.$emit('select-agent', agent.aid)
-    },
-    createAgent() {
-      const ids = this.models.map((model) => model.id)
-      this.agentForm = { ...emptyAgent(), modelIds: ids, defaultModelId: ids[0] || null }
-      this.initError = ''
-      this.agentEditorVisible = true
-    },
-    async editAgent(agent) {
-      try {
-        const detail = await getAgent(agent.aid)
-        this.agentForm = {
-          ...emptyAgent(),
-          ...detail,
-          modelIds: detail.modelIds || []
-        }
-        this.initError = ''
-        this.agentEditorVisible = true
-      } catch (error) {
-        this.$message.error(error.message || 'Agent 加载失败')
-      }
-    },
     providerName(provider) {
       return provider === 2 ? 'Anthropic' : 'OpenAI'
     },
@@ -293,6 +209,7 @@ export default {
             modelIds: agent.modelIds || [],
             defaultModelId: agent.defaultModelId || null,
             systemPrompt: agent.systemPrompt || '',
+            builtInSystemPrompt: agent.builtInSystemPrompt || '',
             chatMemoryType: agent.chatMemoryType || 1,
             chatMemoryMaxMessages: agent.chatMemoryMaxMessages || 1000
           }
@@ -307,7 +224,8 @@ export default {
       this.saving = true
       this.initError = ''
       try {
-        const result = await upsertAgent(this.agentForm)
+        const { systemPrompt: _systemPrompt, builtInSystemPrompt: _builtInPrompt, ...payload } = this.agentForm
+        const result = await upsertAgent(payload)
         this.agentForm.aid = result.aid
         this.$message.success('配置已保存并初始化')
         if (result.initOk === false) {
@@ -315,7 +233,6 @@ export default {
         }
         this.$emit('saved', result)
         this.$emit('select-agent', result.aid)
-        this.agentEditorVisible = false
         await this.load()
       } catch (error) {
         this.$message.error(error.message || '保存失败')
@@ -328,7 +245,7 @@ export default {
       this.modelEditorVisible = true
     },
     editModel(model) {
-      this.modelForm = { ...model, apiKey: '' }
+      this.modelForm = { ...model }
       this.modelEditorVisible = true
     },
     async saveModel() {
@@ -461,139 +378,38 @@ export default {
   font-size: 12px;
 }
 
-.my-agent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.agent-config-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: start;
 }
 
-.my-agent-card {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid #e5e9f0;
-  border-radius: 11px;
-  background: #fff;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+.agent-config-form .form-span-2 {
+  grid-column: 1 / -1;
 }
 
-.my-agent-card:hover {
-  border-color: #a8c3e8;
-  box-shadow: 0 4px 14px rgba(44, 83, 130, 0.08);
-}
-
-.my-agent-card.active {
-  border-color: #8eb3e5;
-  background: #f5f9ff;
-}
-
-.my-agent-avatar {
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
-  overflow: hidden;
-  border-radius: 11px;
-  background: #f4f8ff;
-}
-
-.my-agent-avatar img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.my-agent-main {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.my-agent-main b,
-.my-agent-main small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.my-agent-main b {
-  color: #27364a;
-  font-size: 13.5px;
-}
-
-.my-agent-main small {
-  color: #98a2b3;
-  font-size: 11.5px;
-}
-
-.my-agent-current {
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: #e6f0fc;
-  color: #3b6fb6;
+.built-in-prompt-hint {
+  margin-top: 6px;
+  color: #9099a8;
   font-size: 11px;
+  line-height: 1.5;
 }
 
-.my-agent-edit {
-  padding: 5px 8px;
-  border-radius: 6px;
-  color: #667791;
-  font-size: 12px;
+::v-deep .agent-config-form textarea[readonly] {
+  color: #667085;
+  background: #f7f8fa;
 }
 
-.my-agent-edit:hover,
-.my-agent-edit:focus {
-  outline: none;
-  background: #e7f0fb;
-  color: #3569ad;
-}
-
-.my-agent-footer {
+.agent-config-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 16px;
-}
-
-.agent-config-summary {
-  padding: 18px;
-  border: 1px solid #e5e9f0;
-  border-radius: 12px;
-  background: #fafbfd;
-}
-
-.agent-config-summary-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.agent-config-summary dl {
-  margin: 0 0 18px;
-}
-
-.agent-config-summary dl > div {
-  display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  gap: 12px;
-  padding: 9px 0;
+  padding-top: 8px;
   border-top: 1px solid #edf0f4;
-  font-size: 12px;
 }
 
-.agent-config-summary dt {
-  color: #98a2b3;
-}
-
-.agent-config-summary dd {
-  margin: 0;
-  color: #475467;
+::v-deep .agent-config-form .el-input-number {
+  width: 100%;
 }
 
 .drawer-model-url {

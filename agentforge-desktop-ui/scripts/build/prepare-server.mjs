@@ -1,10 +1,10 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { runtimeDir, serverDir } from '../lib/paths.mjs'
 
-const uiDir = path.resolve(process.cwd())
 const source = process.env.AGENTFORGE_DESKTOP_SERVER_JAR_SOURCE
-  || path.resolve(uiDir, '..', 'agentforge-desktop-server', 'target', 'agentforge-desktop-server.jar')
-const targetDir = path.join(uiDir, 'runtime', 'server')
+  || path.join(serverDir, 'target', 'agentforge-desktop-server.jar')
+const targetDir = path.join(runtimeDir, 'server')
 const target = path.join(targetDir, 'agentforge-desktop-server.jar')
 
 try {

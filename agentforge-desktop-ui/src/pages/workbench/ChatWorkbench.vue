@@ -124,21 +124,28 @@
 
         <div class="composer-wrap">
           <div class="composer">
-          <textarea
-            ref="composerInput"
-            v-model="draft"
-            rows="1"
-            :disabled="!canChat"
-            :placeholder="canChat ? '发送消息…' : '请先创建 Agent'"
-            @input="autoGrow"
-            @compositionstart="composing = true"
-            @compositionend="composing = false"
-            @keydown.enter="onEnter"
-          ></textarea>
-          <button class="send-btn" :class="{ stop: running }" :disabled="!canChat || (!running && !draft.trim())" @click="running ? stop() : send()">
-            <i v-if="!running" class="el-icon-top"></i>
-            <span v-else class="stop-square"></span>
-          </button>
+            <textarea
+              ref="composerInput"
+              v-model="draft"
+              rows="1"
+              :disabled="!canChat"
+              :placeholder="canChat ? '今天帮你做些什么？' : '请先创建 Agent'"
+              @input="autoGrow"
+              @compositionstart="composing = true"
+              @compositionend="composing = false"
+              @keydown.enter="onEnter"
+            ></textarea>
+            <div class="composer-toolbar">
+              <button class="workspace-picker" type="button" :title="projectPath || '使用默认工作空间'" @click="chooseWorkspace">
+                <i class="el-icon-folder"></i>
+                <span>{{ projectPath ? projectName : '选择工作空间' }}</span>
+                <i class="el-icon-arrow-down"></i>
+              </button>
+            </div>
+            <button class="send-btn" :class="{ stop: running }" :disabled="!canChat || (!running && !draft.trim())" @click="running ? stop() : send()">
+              <i v-if="!running" class="el-icon-top"></i>
+              <span v-else class="stop-square"></span>
+            </button>
           </div>
         </div>
         <div class="composer-tip">
@@ -183,6 +190,7 @@ import { request } from '../../api/client'
 
 const COMPOSER_MAX_HEIGHT = 140
 const MODE_KEY = 'agentforge.render.mode'
+const PROJECT_PATH_KEY = 'agentforge.projectPath'
 
 export default {
   name: 'ChatWorkbench',
@@ -209,7 +217,8 @@ export default {
     mode: localStorage.getItem(MODE_KEY) || 'debug',
     settingsOpen: false,
     backendConnected: false,
-    workspace: ''
+    workspace: '',
+    projectPath: localStorage.getItem(PROJECT_PATH_KEY) || ''
   }),
   computed: {
     renderModes() {
@@ -223,6 +232,11 @@ export default {
     },
     canChat() {
       return Boolean(this.selectedAid && this.currentAgent && this.availableModels.length)
+    },
+    projectName() {
+      if (!this.projectPath) return ''
+      const parts = this.projectPath.replace(/[\\/]+$/, '').split(/[\\/]/)
+      return parts[parts.length - 1] || this.projectPath
     },
     title() {
       return this.sessionTitle || (this.messages.find((item) => item.role === 'user') || {}).text || '新对话'
@@ -264,7 +278,7 @@ export default {
             type: 1,
             modelIds,
             defaultModelId: modelIds[0] || null,
-            systemPrompt: '你是一名专业的 AI 助手，请准确、清晰地回答用户问题。',
+            systemPrompt: '',
             chatMemoryType: 1,
             chatMemoryMaxMessages: 1000
           })
@@ -453,7 +467,13 @@ export default {
       try {
         await postSse(
           '/api/chat/stream',
-          { aid: this.selectedAid, sessionId: this.sessionId, message: text, modelId: this.selectedModelId },
+          {
+            aid: this.selectedAid,
+            sessionId: this.sessionId,
+            message: text,
+            modelId: this.selectedModelId,
+            projectPath: this.projectPath || null
+          },
           {
             signal: this.controller.signal,
             onEvent: (event) => this.handleEvent(answer, event, text)
@@ -616,6 +636,16 @@ export default {
       } else {
         this.$message.info(this.workspace || '浏览器模式不支持打开目录')
       }
+    },
+    async chooseWorkspace() {
+      if (!window.electronAPI || !window.electronAPI.chooseDirectory) {
+        this.$message.info('浏览器模式不支持选择本地目录')
+        return
+      }
+      const selected = await window.electronAPI.chooseDirectory(this.projectPath || this.workspace)
+      if (!selected) return
+      this.projectPath = selected
+      localStorage.setItem(PROJECT_PATH_KEY, selected)
     }
   }
 }

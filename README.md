@@ -31,6 +31,7 @@ mvn spring-boot:run
 # 2. 启动桌面端（连接本机后端）
 cd ../agentforge-desktop-ui
 npm install
+npm run doctor   # 只读环境体检：Node/npm/JDK 8/Maven/核心构件/依赖/runtime/磁盘
 # 如果 Electron 下载慢或失败，可使用镜像：
 # ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install
 npm run desktop:dev
@@ -42,7 +43,7 @@ npm run desktop:dev:embedded
 npm run package:current
 ```
 
-配置文件默认位于 `~/.agentforge-desktop/config.json`，包含模型与 Agent 配置。
+配置文件默认位于 `~/.agentforge-desktop/conf/config.json`（Agent 配置）与 `~/.agentforge-desktop/conf/models.json`（模型配置）。
 SQLite 数据库位于 `~/.agentforge-desktop/data/agentforge-desktop.db`。
 
 ## 已实现能力
@@ -53,7 +54,7 @@ SQLite 数据库位于 `~/.agentforge-desktop/data/agentforge-desktop.db`。
 - 右上角模型选择、调试/优雅双模式、设置抽屉
 - 模型配置：增删改查、连通性测试、Function Call 测试
 - Agent 配置：模型集合、默认模型、系统提示词、记忆窗口、保存并初始化
-- 配置保存直接写入 `config.json`，手动编辑后自动热加载
+- 配置保存直接写入 `conf/config.json` / `conf/models.json`，手动编辑后自动热加载
 - 版本化增量 SQL + 启动自动升级 + `bin/upgrade-sqlite.sh`
 - Electron 内置 JRE 8 + JAR，一键打包 macOS arm64/x64、Windows x64
 

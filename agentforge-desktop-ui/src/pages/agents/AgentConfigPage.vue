@@ -3,7 +3,7 @@
     <header class="page-header">
       <div>
         <h1>{{ form.aid ? '编辑 Agent' : '新建 Agent' }}</h1>
-        <p>保存后会写入 config.json，并立即初始化 Agent。</p>
+        <p>保存后会写入 conf/config.json，并立即初始化 Agent。</p>
       </div>
       <div class="header-actions">
         <el-button @click="$router.push('/agents')">返回列表</el-button>
@@ -34,8 +34,8 @@
               <el-option v-for="model in selectableModels" :key="model.id" :label="model.name + ' · ' + model.modelName" :value="model.id" />
             </el-select>
           </el-form-item>
-          <el-form-item label="系统提示词">
-            <el-input v-model="form.systemPrompt" type="textarea" :rows="8" placeholder="你是一名专业的 AI 助手…" />
+          <el-form-item label="内置系统提示词">
+            <el-input :value="form.builtInSystemPrompt" type="textarea" :rows="12" readonly resize="vertical" />
           </el-form-item>
           <el-form-item label="记忆最大消息数">
             <el-input-number v-model="form.chatMemoryMaxMessages" :min="1" :max="100000" />
@@ -52,7 +52,7 @@
         <div class="side-card">
           <h3>配置说明</h3>
           <p>可用模型决定工作台右上角模型下拉的候选集合；默认模型是首次进入时选中的模型。</p>
-          <p>保存后写入 <code>~/.agentforge-desktop/config.json</code>，并清理运行时缓存后重新初始化。</p>
+          <p>保存后写入 <code>~/.agentforge-desktop/conf/config.json</code>，并清理运行时缓存后重新初始化。</p>
         </div>
         <div class="side-card" v-if="form.aid">
           <h3>当前标识</h3>
@@ -65,7 +65,7 @@
 
 <script>
 import { fetchModels } from '../../api/model'
-import { getAgent, upsertAgent, deleteAgent } from '../../api/agent'
+import { getAgent, upsertAgent, deleteAgent, fetchBuiltInSystemPrompt } from '../../api/agent'
 
 const emptyForm = () => ({
   aid: '',
@@ -75,7 +75,8 @@ const emptyForm = () => ({
   type: 1,
   modelIds: [],
   defaultModelId: null,
-  systemPrompt: '你是一名专业的 AI 助手，请准确、清晰地回答用户问题。',
+  systemPrompt: '',
+  builtInSystemPrompt: '',
   chatMemoryType: 1,
   chatMemoryMaxMessages: 1000
 })
@@ -103,6 +104,7 @@ export default {
       this.loading = true
       try {
         this.models = (await fetchModels()) || []
+        this.form.builtInSystemPrompt = (await fetchBuiltInSystemPrompt()) || ''
         const aid = this.$route.query.aid
         if (aid) {
           const agent = await getAgent(aid)
@@ -115,6 +117,7 @@ export default {
             modelIds: agent.modelIds || [],
             defaultModelId: agent.defaultModelId || null,
             systemPrompt: agent.systemPrompt || '',
+            builtInSystemPrompt: agent.builtInSystemPrompt || '',
             chatMemoryType: agent.chatMemoryType || 1,
             chatMemoryMaxMessages: agent.chatMemoryMaxMessages || 1000
           }
@@ -132,7 +135,8 @@ export default {
       this.saving = true
       this.initError = ''
       try {
-        const result = await upsertAgent(this.form)
+        const { systemPrompt: _systemPrompt, builtInSystemPrompt: _builtInPrompt, ...payload } = this.form
+        const result = await upsertAgent(payload)
         this.form.aid = result.aid
         if (result.initOk === false) {
           this.initError = result.initError || 'Agent 初始化失败，请检查模型配置'

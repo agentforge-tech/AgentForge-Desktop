@@ -62,6 +62,15 @@
         </dependency>
         <dependency>
             <groupId>cloud.changlu.agentforge</groupId>
+            <artifactId>agentforge-harness-agent</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cloud.changlu.agentforge</groupId>
+            <artifactId>agentforge-service-protocal</artifactId>
+            <version>${agentforge.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>cloud.changlu.agentforge</groupId>
             <artifactId>agentforge-model-registry</artifactId>
         </dependency>
         <dependency>

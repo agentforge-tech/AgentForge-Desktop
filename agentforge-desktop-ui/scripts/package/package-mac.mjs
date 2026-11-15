@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { fromUi } from '../lib/paths.mjs'
 
 const args = process.argv.slice(2)
 const archIndex = args.indexOf('--arch')
@@ -14,5 +15,5 @@ const map = {
 }
 const target = map[normalized]
 if (!target) throw new Error('Usage: npm run package:mac -- --arch arm64|intel')
-const result = spawnSync(process.execPath, ['scripts/package-desktop.mjs', target], { stdio: 'inherit' })
+const result = spawnSync(process.execPath, [fromUi('scripts', 'package', 'package-desktop.mjs'), target], { stdio: 'inherit' })
 process.exit(result.status ?? 1)

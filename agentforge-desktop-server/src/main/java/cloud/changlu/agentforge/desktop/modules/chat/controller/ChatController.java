@@ -1,6 +1,5 @@
 package cloud.changlu.agentforge.desktop.modules.chat.controller;
 
-import cloud.changlu.agentforge.agent.ReActAgent;
 import cloud.changlu.agentforge.agent.domain.AgentRequest;
 import cloud.changlu.agentforge.desktop.modules.agent.runtime.AgentRuntimeService;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatStreamRequest;
@@ -8,6 +7,7 @@ import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreaming
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.SessionLifecycleMiddleware;
 import cloud.changlu.agentforge.desktop.modules.session.service.AgentSessionService;
 import cloud.changlu.agentforge.desktop.store.DesktopConfigStore;
+import cloud.changlu.agentforge.harness.agent.HarnessAgent;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -70,17 +70,20 @@ public class ChatController {
         }
 
         final AgentSessionService.SessionInitResult init;
-        final ReActAgent runtime;
+        final HarnessAgent runtime;
         try {
             init = sessionService.initChat(aid, body.getSessionId(), message, modelId, 1L);
-            runtime = runtimeService.getOrCreate(agent, model);
+            runtime = runtimeService.getOrCreate(agent, model, body.getProjectPath());
         } catch (RuntimeException e) {
             return notice(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
 
+        final String executionId = runtimeService.createExecutionId(runtime);
         final SseEmitter emitter = new SseEmitter(0L);
         streamingMiddleware.bind(init.getSessionId(), emitter);
-        activeStops.put(init.getSessionId(), () -> runtimeService.cancel(runtime, init.getSessionId()));
+        activeStops.put(
+                init.getSessionId(),
+                () -> runtimeService.cancel(runtime, init.getSessionId(), executionId));
         emitter.onCompletion(() -> cleanup(init.getSessionId()));
         emitter.onTimeout(() -> cleanup(init.getSessionId()));
 
@@ -95,6 +98,7 @@ public class ChatController {
                         AgentRequest request =
                                 AgentRequest.builder()
                                         .memoryId(init.getSessionId())
+                                        .executionId(executionId)
                                         .question(message)
                                         .extensions(extensions)
                                         .build();
@@ -122,12 +126,12 @@ public class ChatController {
             emitter.send(
                     SseEmitter.event()
                             .data(
-                                    cloud.changlu.agentforge.desktop.protocol.processor.AiResponseProcessor
+                                    cloud.changlu.agentforge.service.protocol.processor.AiResponseProcessor
                                             .respText(message, false)));
             emitter.send(
                     SseEmitter.event()
                             .data(
-                                    cloud.changlu.agentforge.desktop.protocol.processor.AiResponseProcessor
+                                    cloud.changlu.agentforge.service.protocol.processor.AiResponseProcessor
                                             .respEnd(true)));
         } catch (Exception ignored) {
             // client disconnected

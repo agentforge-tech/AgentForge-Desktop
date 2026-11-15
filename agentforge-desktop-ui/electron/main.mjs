@@ -18,6 +18,7 @@ let quitting = false
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+// 1、准备后端运行环境：分配可用端口，并根据开发/打包环境定位 Java 与服务端 JAR。
 async function findFreePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer()
@@ -91,6 +92,7 @@ async function probeBackend(baseUrl, token, timeoutMs = 800) {
   }
 }
 
+// 2、启动后端服务：优先复用外部服务，否则启动本地 Java 子进程。
 async function startBackend() {
   if (EXTERNAL_SERVER_URL) {
     let baseUrl = EXTERNAL_SERVER_URL.replace(/\/$/, '')
@@ -159,6 +161,7 @@ async function startBackend() {
     }
   })
 
+  // 3、等待健康检查通过：只有后端 ready 后，才向下执行界面启动流程。
   try {
     const health = await waitForBackend(baseUrl, token, child)
     return { baseUrl, token, workspace: health.workspace || '', process: child, external: false }
@@ -189,6 +192,7 @@ async function stopBackend(timeoutMs = 5000) {
   })
 }
 
+// 4、创建桌面窗口：加载 preload 安全桥接和渲染页面，并管控外部链接跳转。
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
@@ -284,6 +288,7 @@ function createWindow() {
   else void win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
 }
 
+// 5、注册主进程 IPC：向渲染进程提供后端信息、打开路径和选择目录能力。
 function registerIpc() {
   ipcMain.handle('local-agent:server-info', () => ({
     baseUrl: backend.baseUrl,
@@ -306,6 +311,7 @@ function registerIpc() {
   })
 }
 
+// 6、Electron 就绪后串联核心启动流程：启动后端 -> 注册 IPC -> 创建主窗口。
 app.whenReady().then(async () => {
   try {
     backend = await startBackend()
@@ -322,6 +328,7 @@ app.whenReady().then(async () => {
   }
 })
 
+// 7、统一处理应用退出：关闭窗口时退出应用，并终止由主进程启动的 Java 子进程。
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })

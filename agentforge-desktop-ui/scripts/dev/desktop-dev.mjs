@@ -1,13 +1,16 @@
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { findFreePort, spawnNodeModule, waitForHttp, shutdown } from './dev-utils.mjs'
+import { fromUi, uiDir } from '../lib/paths.mjs'
+import { spawnNodeModule } from '../lib/exec.mjs'
+import { findFreePort, waitForHttp } from '../lib/ports.mjs'
+import { shutdown } from '../lib/proc.mjs'
 
 const host = '127.0.0.1'
 const embedded = process.argv.includes('--embedded') || process.env.AGENTFORGE_DESKTOP_EMBEDDED === '1'
 const localServerPort = Number(process.env.AGENTFORGE_DESKTOP_SERVER_PORT) || 43179
 const serverUrl = (process.env.AGENTFORGE_DESKTOP_SERVER_URL || (embedded ? '' : `http://${host}:${localServerPort}`))
   .replace(/\/$/, '')
-const rootDir = process.env.AGENTFORGE_DESKTOP_ROOT_DIR || path.resolve('.agentforge-dev')
+const rootDir = process.env.AGENTFORGE_DESKTOP_ROOT_DIR || path.join(uiDir, '.agentforge-dev')
 const port = await findFreePort(Number(process.env.AGENTFORGE_VITE_PORT) || 1420, host)
 const rendererUrl = `http://${host}:${port}`
 const children = []
@@ -21,7 +24,7 @@ if (serverUrl) {
   console.log('[AgentForge] Electron will start runtime/server/agentforge-desktop-server.jar automatically')
 }
 
-const vite = spawnNodeModule('node_modules/vite/bin/vite.js', ['--host', host, '--port', String(port), '--strictPort'], {
+const vite = spawnNodeModule(fromUi('node_modules', 'vite', 'bin', 'vite.js'), ['--host', host, '--port', String(port), '--strictPort'], {
   env: { ...process.env, AGENTFORGE_VITE_PORT: String(port) }
 })
 children.push(vite)
@@ -30,7 +33,7 @@ try {
   await waitForHttp(rendererUrl)
   const { default: electronPath } = await import('electron')
   const electron = spawn(electronPath, ['.'], {
-    cwd: process.cwd(),
+    cwd: uiDir,
     stdio: 'inherit',
     env: {
       ...process.env,

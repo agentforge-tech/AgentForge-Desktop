@@ -10,6 +10,10 @@ export function getAgent(aid) {
   return request(BASE + '/' + encodeURIComponent(aid))
 }
 
+export function fetchBuiltInSystemPrompt() {
+  return request(BASE + '/built-in-system-prompt')
+}
+
 export function upsertAgent(payload) {
   return post(BASE + '/upsert', payload)
 }

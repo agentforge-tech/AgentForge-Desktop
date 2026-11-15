@@ -22,6 +22,14 @@ public class DesktopProperties {
         if (configFile != null && !configFile.trim().isEmpty()) {
             return Paths.get(configFile.trim()).toAbsolutePath().normalize();
         }
+        return rootPath().resolve("conf").resolve("config.json");
+    }
+
+    public Path modelsPath() {
+        return configPath().resolveSibling("models.json");
+    }
+
+    public Path legacyConfigPath() {
         return rootPath().resolve("config.json");
     }
 

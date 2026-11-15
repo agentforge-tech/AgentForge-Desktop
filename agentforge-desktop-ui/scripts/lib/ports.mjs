@@ -1,6 +1,4 @@
 import net from 'node:net'
-import { spawn } from 'node:child_process'
-import path from 'node:path'
 
 export async function findFreePort(start, host = '127.0.0.1') {
   for (let port = start; port < start + 100; port += 1) {
@@ -18,13 +16,6 @@ export async function findFreePort(start, host = '127.0.0.1') {
   throw new Error(`No free port found from ${start}`)
 }
 
-export function spawnNodeModule(relativeBin, args, options = {}) {
-  return spawn(process.execPath, [path.resolve(relativeBin), ...args], {
-    stdio: 'inherit',
-    ...options
-  })
-}
-
 export async function waitForHttp(url, timeoutMs = 30000) {
   const started = Date.now()
   let lastError
@@ -38,10 +29,4 @@ export async function waitForHttp(url, timeoutMs = 30000) {
     await new Promise((resolve) => setTimeout(resolve, 180))
   }
   throw new Error(`Timed out waiting for ${url}${lastError ? `: ${lastError.message}` : ''}`)
-}
-
-export function shutdown(children) {
-  for (const child of children) {
-    if (child && !child.killed) child.kill('SIGTERM')
-  }
 }

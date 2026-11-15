@@ -28,6 +28,11 @@ public class AgentConfigController {
         return service.list();
     }
 
+    @GetMapping("/built-in-system-prompt")
+    public String builtInSystemPrompt() {
+        return service.builtInSystemPrompt();
+    }
+
     @GetMapping("/{aid}")
     public AgentConfigVo get(@PathVariable("aid") String aid) {
         return service.get(aid);

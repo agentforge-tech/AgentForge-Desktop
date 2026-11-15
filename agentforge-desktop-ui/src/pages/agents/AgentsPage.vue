@@ -3,7 +3,7 @@
     <header class="page-header">
       <div>
         <h1>Agent 配置</h1>
-        <p>Agent 配置保存在本地 config.json，保存后立即生效。</p>
+        <p>Agent 配置保存在 conf/config.json，保存后立即生效。</p>
       </div>
       <el-button type="primary" icon="el-icon-plus" @click="createAgent">新建 Agent</el-button>
     </header>

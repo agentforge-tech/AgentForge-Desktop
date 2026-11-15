@@ -10,11 +10,11 @@ import cloud.changlu.agentforge.desktop.modules.session.dao.AgentSessionMessageM
 import cloud.changlu.agentforge.desktop.modules.session.enums.SessionMessageStatusEnum;
 import cloud.changlu.agentforge.desktop.modules.session.enums.SessionStatusEnum;
 import cloud.changlu.agentforge.desktop.modules.session.enums.SessionStatusTransfer;
-import cloud.changlu.agentforge.desktop.protocol.StreamEventResponse;
-import cloud.changlu.agentforge.desktop.protocol.ToolCallResult;
-import cloud.changlu.agentforge.desktop.protocol.processor.AiResponseProcessor;
-import cloud.changlu.agentforge.desktop.protocol.processor.think.AiThinkProcessor;
-import cloud.changlu.agentforge.desktop.protocol.processor.tool.AiToolCallProcessor;
+import cloud.changlu.agentforge.service.protocol.StreamEventResponse;
+import cloud.changlu.agentforge.service.protocol.ToolCallResult;
+import cloud.changlu.agentforge.service.protocol.processor.AiResponseProcessor;
+import cloud.changlu.agentforge.service.protocol.processor.think.AiThinkProcessor;
+import cloud.changlu.agentforge.service.protocol.processor.tool.AiToolCallProcessor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -178,7 +178,13 @@ public class SessionLifecycleMiddleware implements IStreamingIAgentMiddleware {
         SessionMessageStatusEnum status =
                 SessionStatusTransfer.fromStopResult(
                         stopResult == null ? null : stopResult.getStopResultState());
-        String fallback = stopResult == null ? null : stopResult.getRunRes();
+        String fallback = null;
+        if (stopResult != null) {
+            fallback =
+                    stopResult.getResult() != null
+                            ? stopResult.getResult()
+                            : stopResult.getReason();
+        }
         finish(chatContext, status, fallback);
     }
 

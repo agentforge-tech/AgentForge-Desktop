@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
+import { uiDir } from '../lib/paths.mjs'
 
 const target = process.argv[2] || 'mac-arm64'
-const releaseDir = path.resolve('release')
+const releaseDir = path.join(uiDir, 'release')
 const appDir = path.join(releaseDir, target === 'mac-arm64' ? 'mac-arm64' : 'mac')
 const appBundle = fs.existsSync(appDir)
   ? fs.readdirSync(appDir).find((name) => name.endsWith('.app'))

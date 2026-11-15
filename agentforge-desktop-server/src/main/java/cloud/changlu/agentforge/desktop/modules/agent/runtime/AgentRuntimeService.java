@@ -1,19 +1,28 @@
 package cloud.changlu.agentforge.desktop.modules.agent.runtime;
 
-import cloud.changlu.agentforge.agent.ReActAgent;
 import cloud.changlu.agentforge.agent.domain.AgentRequest;
 import cloud.changlu.agentforge.agent.extend.memory.window.MessageWindowChatMemoryProvider;
 import cloud.changlu.agentforge.agent.extend.middlewares.LoggingIAgentMiddleware;
+import cloud.changlu.agentforge.desktop.config.DesktopProperties;
+import cloud.changlu.agentforge.desktop.config.DesktopAgentPrompt;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreamingMiddleware;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.SessionLifecycleMiddleware;
 import cloud.changlu.agentforge.desktop.store.DesktopConfigStore;
 import cloud.changlu.agentforge.desktop.store.SqliteChatMemoryStore;
+import cloud.changlu.agentforge.harness.agent.HarnessAgent;
+import cloud.changlu.agentforge.harness.runtime.local.LocalRuntime;
+import cloud.changlu.agentforge.harness.runtime.local.workspace.Workspace;
+import cloud.changlu.agentforge.model.chat.ChatModel;
+import cloud.changlu.agentforge.model.chat.StreamingChatModel;
 import cloud.changlu.agentforge.model.registry.LlmFactory;
 import cloud.changlu.agentforge.model.registry.config.LlmBasicConfig;
 import cloud.changlu.agentforge.model.registry.constant.ChatModelProperties;
-import cloud.changlu.agentforge.model.tool.execution.ToolService;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PreDestroy;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -23,29 +32,35 @@ import java.util.regex.Pattern;
 public class AgentRuntimeService {
 
     private final DesktopConfigStore configStore;
+    private final DesktopProperties properties;
     private final SqliteChatMemoryStore memoryStore;
     private final ServiceStreamingMiddleware streamingMiddleware;
     private final SessionLifecycleMiddleware sessionLifecycleMiddleware;
 
-    private final Map<String, ReActAgent> cache = new ConcurrentHashMap<String, ReActAgent>();
+    private final Map<String, HarnessAgent> cache = new ConcurrentHashMap<String, HarnessAgent>();
     private volatile long lastRevision = -1L;
 
     public AgentRuntimeService(
             DesktopConfigStore configStore,
+            DesktopProperties properties,
             SqliteChatMemoryStore memoryStore,
             ServiceStreamingMiddleware streamingMiddleware,
             SessionLifecycleMiddleware sessionLifecycleMiddleware) {
         this.configStore = configStore;
+        this.properties = properties;
         this.memoryStore = memoryStore;
         this.streamingMiddleware = streamingMiddleware;
         this.sessionLifecycleMiddleware = sessionLifecycleMiddleware;
     }
 
-    public ReActAgent getOrCreate(
-            DesktopConfigStore.AgentConfig agent, DesktopConfigStore.ModelConfig model) {
+    public HarnessAgent getOrCreate(
+            DesktopConfigStore.AgentConfig agent,
+            DesktopConfigStore.ModelConfig model,
+            String projectPath) {
         refreshIfNeeded();
-        String key = key(agent.aid, model.id);
-        ReActAgent existing = cache.get(key);
+        Workspace workspace = resolveWorkspace(agent.aid, projectPath);
+        String key = key(agent.aid, model.id, workspace.root());
+        HarnessAgent existing = cache.get(key);
         if (existing != null) {
             return existing;
         }
@@ -54,23 +69,37 @@ public class AgentRuntimeService {
             if (existing != null) {
                 return existing;
             }
-            ReActAgent created = build(agent, model);
+            HarnessAgent created = build(agent, model, workspace);
             cache.put(key, created);
             return created;
         }
     }
 
-    public ReActAgent warmUp(
+    public HarnessAgent warmUp(
             DesktopConfigStore.AgentConfig agent, DesktopConfigStore.ModelConfig model) {
-        return getOrCreate(agent, model);
+        return getOrCreate(agent, model, null);
     }
 
-    public void stream(ReActAgent agent, AgentRequest request) {
+    public String builtInSystemPrompt(String aid) {
+        Workspace workspace = resolveWorkspace(aid, null);
+        LocalRuntime runtime = LocalRuntime.builder().workspace(workspace).build();
+        try {
+            return DesktopAgentPrompt.render(null) + "\n\n" + runtime.systemPrompt().trim();
+        } finally {
+            runtime.close();
+        }
+    }
+
+    public void stream(HarnessAgent agent, AgentRequest request) {
         agent.runStream(request).ignoreErrors().start();
     }
 
-    public void cancel(ReActAgent agent, String sessionId) {
-        agent.cancel(sessionId);
+    public String createExecutionId(HarnessAgent agent) {
+        return agent.createExecutionId();
+    }
+
+    public void cancel(HarnessAgent agent, String sessionId, String executionId) {
+        agent.cancel(sessionId, executionId);
     }
 
     public void evict(String aid) {
@@ -78,31 +107,56 @@ public class AgentRuntimeService {
             return;
         }
         String prefix = aid + "::";
-        cache.keySet().removeIf(key -> key.startsWith(prefix));
+        cache.entrySet().removeIf(
+                entry -> {
+                    if (!entry.getKey().startsWith(prefix)) {
+                        return false;
+                    }
+                    close(entry.getValue());
+                    return true;
+                });
     }
 
     public void evict(String aid, Long modelId) {
         if (aid == null || modelId == null) {
             return;
         }
-        cache.remove(key(aid, modelId));
+        String prefix = aid + "::" + modelId + "::";
+        cache.entrySet().removeIf(
+                entry -> {
+                    if (!entry.getKey().startsWith(prefix)) {
+                        return false;
+                    }
+                    close(entry.getValue());
+                    return true;
+                });
     }
 
     public void clearAll() {
+        for (HarnessAgent agent : cache.values()) {
+            close(agent);
+        }
         cache.clear();
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        clearAll();
     }
 
     public void refreshIfNeeded() {
         configStore.reloadIfChanged();
         long revision = configStore.revision();
         if (revision != lastRevision) {
-            cache.clear();
+            clearAll();
             lastRevision = revision;
         }
     }
 
-    private ReActAgent build(
-            DesktopConfigStore.AgentConfig agent, DesktopConfigStore.ModelConfig model) {
+    private HarnessAgent build(
+            DesktopConfigStore.AgentConfig agent,
+            DesktopConfigStore.ModelConfig model,
+            Workspace workspace) {
         ChatModelProperties properties =
                 ChatModelProperties.builder().timeout(2 * 60 * 60).returnThinking(true).build();
         LlmBasicConfig llm =
@@ -118,20 +172,51 @@ public class AgentRuntimeService {
         MessageWindowChatMemoryProvider memoryProvider =
                 new MessageWindowChatMemoryProvider(maxMessages, memoryStore);
 
-        String systemPrompt =
-                agent.agentConfig == null ? null : agent.agentConfig.systemPrompt;
+        String systemPrompt = DesktopAgentPrompt.render(null);
 
-        return ReActAgent.builder()
-                .agentName(agent.name)
-                .systemPrompt(systemPrompt)
-                .chatModel(LlmFactory.buildChatModel(llm))
-                .streamingChatModel(LlmFactory.buildStreamChatModel(llm))
-                .chatMemoryProvider(memoryProvider)
-                .middleware(new LoggingIAgentMiddleware())
-                .middleware(sessionLifecycleMiddleware)
-                .middleware(streamingMiddleware)
-                .toolService(new ToolService())
-                .build();
+        ChatModel chatModel = LlmFactory.buildChatModel(llm);
+        StreamingChatModel streamingChatModel = LlmFactory.buildStreamChatModel(llm);
+        LocalRuntime runtime = LocalRuntime.builder().workspace(workspace).build();
+        try {
+            return HarnessAgent.builder()
+                    .runtime(runtime)
+                    .agentName(agent.name)
+                    .systemPrompt(systemPrompt)
+                    .chatModel(chatModel)
+                    .streamingChatModel(streamingChatModel)
+                    .chatMemoryProvider(memoryProvider)
+                    .middleware(new LoggingIAgentMiddleware())
+                    .middleware(sessionLifecycleMiddleware)
+                    .middleware(streamingMiddleware)
+                    .build();
+        } catch (RuntimeException e) {
+            runtime.close();
+            throw e;
+        } catch (Error e) {
+            runtime.close();
+            throw e;
+        }
+    }
+
+    private Workspace resolveWorkspace(String aid, String projectPath) {
+        Path root =
+                projectPath == null || projectPath.trim().isEmpty()
+                        ? properties.rootPath().resolve("workspace")
+                        : java.nio.file.Paths.get(projectPath.trim());
+        try {
+            if (projectPath == null || projectPath.trim().isEmpty()) {
+                Files.createDirectories(root);
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to create agent workspace: " + root, e);
+        }
+        return Workspace.builder().id(aid).root(root).build();
+    }
+
+    private static void close(HarnessAgent agent) {
+        if (agent != null) {
+            agent.close();
+        }
     }
 
     private static int resolveMaxMessages(DesktopConfigStore.AgentConfig agent) {
@@ -154,7 +239,7 @@ public class AgentRuntimeService {
         return 1000;
     }
 
-    private static String key(String aid, Long modelId) {
-        return aid + "::" + modelId;
+    private static String key(String aid, Long modelId, Path workspaceRoot) {
+        return aid + "::" + modelId + "::" + workspaceRoot;
     }
 }
