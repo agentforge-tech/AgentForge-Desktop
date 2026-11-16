@@ -1,3 +1,12 @@
+import { reduceInterruptAnswers, reduceInterruptEvent } from './interruptEventReducer'
+import {
+  appendResponseSegment,
+  closeOpenResponseSegment,
+  finishResponseSegments,
+  promoteLastResponseSegment,
+  shouldAppendResponseSegment
+} from './responseSegmentReducer'
+
 function parseEvents(raw) {
   if (!raw) return []
   if (Array.isArray(raw)) return raw
@@ -13,13 +22,14 @@ function applyThink(message, event) {
   const last = message.parts[message.parts.length - 1]
   const open = last && last.type === 'think' && last.status === 'thinking' ? last : null
   const text = event.content || ''
+  if (!String(text).trim() && !open) return
   if (!event.isFinish) {
     if (open) open.content += text
     else message.parts.push({ type: 'think', content: text, status: 'thinking', startedAt: 0, duration: null })
     return
   }
   if (open) {
-    if (text) open.content = text
+    if (String(text).trim()) open.content = text
     open.status = 'end'
     open.duration = null
   } else if (text) {
@@ -63,7 +73,21 @@ function applyTool(message, event) {
   part.isFinish = !!event.isFinish
 }
 
+function applyAppendPart(message, event) {
+  const content = event.content || {}
+  if (Number(content.status) !== 2) return
+  if (!content.appendId || message.parts.some((part) => part.type === 'appended_user_message' && part.appendId === content.appendId)) return
+  message.parts.push({
+    type: 'appended_user_message',
+    appendId: content.appendId,
+    content: content.content || '',
+    effectiveStep: content.effectiveStep
+  })
+}
+
 export function replayMessage(record) {
+  const events = parseEvents(record.events)
+  let sawRespEnd = false
   const message = {
     role: 'assistant',
     status: 'success',
@@ -74,19 +98,43 @@ export function replayMessage(record) {
     finishedAt: record.finishedAt || null,
     elapsedMs: record.elapsedMs || null
   }
-  parseEvents(record.events).forEach((event) => {
+  events.forEach((event) => {
     switch (event.event) {
       case 'think':
+        closeOpenResponseSegment(message, () => 0)
         applyThink(message, event)
         break
       case 'resp':
-        message.content += event.content || ''
+        if (shouldAppendResponseSegment(message, event)) {
+          closeOpenThink(message)
+          appendResponseSegment(message, event, () => 0)
+        }
         break
       case 'tool_call':
+        closeOpenResponseSegment(message, () => 0)
         closeOpenThink(message)
         applyTool(message, event)
+        reduceInterruptAnswers(message, event)
+        break
+      case 'interrupt':
+        closeOpenResponseSegment(message, () => 0)
+        closeOpenThink(message)
+        reduceInterruptEvent(message, event)
+        break
+      case 'user_message':
+        closeOpenResponseSegment(message, () => 0)
+        applyAppendPart(message, event)
+        break
+      case 'compact':
+      case 'retry':
+        closeOpenResponseSegment(message, () => 0)
+        break
+      case 'resp_end':
+        sawRespEnd = true
+        promoteLastResponseSegment(message, () => 0)
         break
       case 'error':
+        finishResponseSegments(message, () => 0)
         message.status = 'error'
         message.error =
           typeof event.content === 'string' ? event.content : JSON.stringify(event.content || '生成失败')
@@ -99,15 +147,26 @@ export function replayMessage(record) {
     message.status = 'error'
     if (!message.error) message.error = record.contentText || '生成失败'
   } else if (record.status === 4) {
-    message.status = 'error'
-    if (!message.error) message.error = '本轮已取消'
+    message.status = 'cancelled'
+    if (!message.error) message.error = '用户已停止'
+  } else if (record.status === 6) {
+    message.status = 'cancelled'
+    if (!message.error) message.error = '停止超时，任务已强制收口'
+  } else if (record.status === 7) {
+    message.status = 'running'
+  } else if (record.status === 8) {
+    message.status = 'waiting'
   } else if (record.status === 1 || record.status === 2) {
     message.status = 'running'
   }
-  if (!message.content && record.contentText) message.content = record.contentText
+  if (message.status === 'success' && !sawRespEnd && !message.content) {
+    promoteLastResponseSegment(message, () => 0)
+  }
+  if (!events.length && !message.content && record.contentText) message.content = record.contentText
   message.parts.forEach((part) => {
     if (part.type === 'think' && part.status === 'thinking') part.status = 'end'
     if (part.type === 'tool_card' && !part.isFinish) part.isFinish = true
+    if (part.type === 'response_segment' && part.status === 'streaming') part.status = 'complete'
   })
   return message
 }

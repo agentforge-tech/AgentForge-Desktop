@@ -25,7 +25,7 @@ export default {
   computed: {
     modeComponent() { return getRenderMode(this.mode).component },
     showActions() {
-      if (this.message.status === 'running') return false
+      if (this.message.status !== 'success') return false
       return !this.message.content || this.renderedContent === this.message.content
     }
   },

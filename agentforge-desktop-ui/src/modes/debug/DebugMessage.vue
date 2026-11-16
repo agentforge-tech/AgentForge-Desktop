@@ -6,37 +6,41 @@
         <i :class="processOpen ? 'el-icon-caret-bottom' : 'el-icon-caret-right'"></i>
         <span class="process-title">{{ processTitle }}</span>
         <span class="process-meta">
-          {{ thinkCount }} 段思考<template v-if="toolCount"> · {{ toolCount }} 个工具</template>
+          <template v-if="responseCount">{{ responseCount }} 个响应片段 · </template>{{ thinkCount }} 段思考<template v-if="toolCount"> · {{ toolCount }} 个工具</template>
+          <template v-if="askCount"> · {{ askCount }} 次询问</template>
           <template v-if="elapsed"> · {{ elapsed }}</template>
         </span>
       </div>
       <el-collapse-transition>
         <div v-show="processOpen" class="process-body">
           <template v-for="(part, idx) in processParts">
-            <ThinkBlock v-if="part.type === 'think'" :key="'t' + idx" :part="part" />
+            <ResponseSegmentBlock v-if="part.type === 'response_segment'" :key="'r' + idx" :part="part" mode="debug" />
+            <ThinkBlock v-else-if="part.type === 'think'" :key="'t' + idx" :part="part" />
             <ToolCard v-else-if="part.type === 'tool_card'" :key="'c' + idx" :part="part" />
+            <AppendedUserMessage v-else-if="part.type === 'appended_user_message'" :key="'a' + idx" :part="part" />
+            <InterruptTraceItem v-else-if="part.type === 'interrupt_card'" :key="'i' + idx" :part="part" mode="debug" />
           </template>
         </div>
       </el-collapse-transition>
     </div>
 
     <!-- 最终回答 -->
-    <div v-if="message.content" class="answer">
+    <div v-if="displayContent" class="answer">
       <MarkdownView
-        :content="message.content"
-        :streaming="message.status === 'running'"
+        :content="displayContent"
+        :streaming="contentStreaming"
         mode="typewriter-blur"
         @render-complete="$emit('render-complete', $event)"
       />
     </div>
 
-    <!-- 运行中占位 -->
-    <div v-if="message.status === 'running' && !message.content" class="typing">
-      <span></span><span></span><span></span>
+    <!-- 运行中占位：只要本轮仍在执行就保留，避免思考/工具阶段出现空白 -->
+    <div v-if="message.status === 'running'" class="typing">
+      <span class="typing-text">正在思考</span>
     </div>
 
     <!-- 错误 -->
-    <div v-if="message.error" class="error-box">
+    <div v-if="message.error && message.status !== 'cancelled'" class="error-box">
       <i class="el-icon-warning-outline"></i>
       <span>{{ message.error }}</span>
     </div>
@@ -48,30 +52,59 @@ import MarkdownView from '../../components/MarkdownView.vue'
 import { formatElapsedDuration } from '../../utils/formatDuration'
 import ThinkBlock from './ThinkBlock.vue'
 import ToolCard from './ToolCard.vue'
+import AppendedUserMessage from '../../components/AppendedUserMessage.vue'
+import InterruptTraceItem from '../../components/InterruptTraceItem.vue'
+import ResponseSegmentBlock from '../../components/ResponseSegmentBlock.vue'
 
 export default {
   name: 'DebugMessage',
-  components: { MarkdownView, ThinkBlock, ToolCard },
+  components: { MarkdownView, ThinkBlock, ToolCard, AppendedUserMessage, InterruptTraceItem, ResponseSegmentBlock },
   props: {
     message: { type: Object, required: true }
   },
   data() {
     return {
-      processOpen: this.message.status === 'running'
+      processOpen: this.message.status === 'running' || this.message.status === 'waiting'
     }
   },
   computed: {
     processParts() {
-      return (this.message.parts || []).filter((p) => p.type !== 'text')
+      return (this.message.parts || []).filter((p) =>
+        p.type !== 'text' &&
+        p !== this.activeResponseSegment &&
+        (p.type !== 'response_segment' || String(p.content || '').trim())
+      )
+    },
+    activeResponseSegment() {
+      const parts = this.message.parts || []
+      for (let index = parts.length - 1; index >= 0; index -= 1) {
+        const part = parts[index]
+        if (part.type === 'response_segment' && part.status === 'streaming') return part
+      }
+      return null
+    },
+    displayContent() {
+      return this.message.content || (this.activeResponseSegment && this.activeResponseSegment.content) || ''
+    },
+    contentStreaming() {
+      return !this.message.content && !!this.activeResponseSegment && this.message.status === 'running'
     },
     thinkCount() {
       return this.processParts.filter((p) => p.type === 'think').length
     },
+    responseCount() {
+      return this.processParts.filter((p) => p.type === 'response_segment').length
+    },
     toolCount() {
       return this.processParts.filter((p) => p.type === 'tool_card').length
     },
+    askCount() {
+      return this.processParts.filter((p) => p.type === 'interrupt_card').length
+    },
     processTitle() {
-      return this.message.status === 'running' ? '执行中...' : '执行过程'
+      if (this.message.status === 'running') return '执行中...'
+      if (this.message.status === 'waiting') return '等待确认'
+      return '执行过程'
     },
     elapsed() {
       return formatElapsedDuration(this.message.elapsedMs)
@@ -79,8 +112,8 @@ export default {
   },
   watch: {
     'message.status'(val) {
-      // 运行中自动展开，完成后自动收拢为一行摘要
-      this.processOpen = val === 'running'
+      // 运行中与等待确认时保持展开，只有完成/失败/取消才收拢。
+      this.processOpen = val === 'running' || val === 'waiting'
     }
   }
 }
@@ -112,14 +145,25 @@ export default {
 
 .answer { margin: 2px 0 8px; padding-left: 0; }
 
-.typing { display: flex; min-height: 32px; align-items: center; gap: 5px; padding: 0; }
-.typing span {
-  width: 7px; height: 7px; border-radius: 50%; background: #c4cdd9;
-  animation: blink 1.2s infinite ease-in-out;
+.typing { display: flex; min-height: 22px; align-items: center; padding: 0; margin-top: 2px; }
+.typing-text {
+  display: inline-block;
+  background: linear-gradient(90deg, #c4cdd9 0%, #c4cdd9 40%, #3b6fb6 50%, #c4cdd9 60%, #c4cdd9 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .3px;
+  animation: typing-shimmer 1.8s linear infinite;
 }
-.typing span:nth-child(2) { animation-delay: 0.2s; }
-.typing span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+.typing-text::after { content: '...'; }
+@keyframes typing-shimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
 
 .error-box {
   display: flex;

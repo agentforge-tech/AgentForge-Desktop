@@ -123,13 +123,34 @@
         </transition>
 
         <div class="composer-wrap">
+          <div v-if="pendingAppends.length" class="append-queue" aria-live="polite">
+            <div class="append-queue-head">
+              <span class="append-queue-status"><i></i>后续指令</span>
+              <span class="append-queue-hint">{{ pendingAppends.length }} 条等待插入</span>
+            </div>
+            <transition-group name="append-list" tag="div" class="append-queue-list">
+              <div v-for="(item, index) in pendingAppends" :key="item.appendId" class="append-pill">
+                <span class="append-pill-index">↳</span>
+                <span class="append-pill-content" :title="item.content">{{ item.content }}</span>
+                <span class="append-pill-waiting">第 {{ index + 1 }} 位</span>
+                <button type="button" title="取消追加" @click="cancelAppend(item.appendId)"><i class="el-icon-close"></i></button>
+              </div>
+            </transition-group>
+          </div>
+          <InterruptCard
+            v-if="activeInterrupt"
+            class="desktop-composer-interrupt"
+            :part="activeInterrupt"
+            compact
+            @submit="submitInterrupt"
+          />
           <div class="composer">
             <textarea
               ref="composerInput"
               v-model="draft"
               rows="1"
-              :disabled="!canChat"
-              :placeholder="canChat ? '今天帮你做些什么？' : '请先创建 Agent'"
+              :disabled="!canChat || !!activeInterrupt"
+              :placeholder="composerPlaceholder"
               @input="autoGrow"
               @compositionstart="composing = true"
               @compositionend="composing = false"
@@ -142,8 +163,14 @@
                 <i class="el-icon-arrow-down"></i>
               </button>
             </div>
-            <button class="send-btn" :class="{ stop: running }" :disabled="!canChat || (!running && !draft.trim())" @click="running ? stop() : send()">
-              <i v-if="!running" class="el-icon-top"></i>
+            <button
+              class="send-btn"
+              :class="{ stop: running && !draft.trim() }"
+              :disabled="!canChat || !!activeInterrupt || (!running && !draft.trim())"
+              :title="primaryActionTitle"
+              @click="onPrimaryAction"
+            >
+              <i v-if="!running || draft.trim()" class="el-icon-top"></i>
               <span v-else class="stop-square"></span>
             </button>
           </div>
@@ -170,11 +197,21 @@
 <script>
 import AgentMessageContent from '../../components/AgentMessageContent.vue'
 import ConfigDrawer from '../../components/ConfigDrawer.vue'
+import InterruptCard from '../../components/InterruptCard.vue'
 import chatAutoScroll from '../../utils/chatAutoScroll'
 import { postSse } from '../../utils/sse'
 import { fetchAgents, upsertAgent } from '../../api/agent'
 import { fetchModels } from '../../api/model'
-import { stopChat } from '../../api/chat'
+import { stopChat, resumeChatInterrupt, appendChatMessage, cancelChatAppend } from '../../api/chat'
+import { reduceInterruptEvent, reduceInterruptAnswers } from '../../utils/interruptEventReducer'
+import { reduceAppendEvent } from '../../utils/appendEventReducer'
+import {
+  appendResponseSegment,
+  closeOpenResponseSegment,
+  finishResponseSegments,
+  promoteLastResponseSegment,
+  shouldAppendResponseSegment
+} from '../../utils/responseSegmentReducer'
 import {
   fetchSessionList,
   fetchTopSessionList,
@@ -190,11 +227,10 @@ import { request } from '../../api/client'
 
 const COMPOSER_MAX_HEIGHT = 140
 const MODE_KEY = 'agentforge.render.mode'
-const PROJECT_PATH_KEY = 'agentforge.projectPath'
 
 export default {
   name: 'ChatWorkbench',
-  components: { AgentMessageContent, ConfigDrawer },
+  components: { AgentMessageContent, ConfigDrawer, InterruptCard },
   mixins: [chatAutoScroll],
   data: () => ({
     agents: [],
@@ -212,13 +248,16 @@ export default {
     messages: [],
     draft: '',
     running: false,
+    stopping: false,
     controller: null,
     composing: false,
     mode: localStorage.getItem(MODE_KEY) || 'debug',
     settingsOpen: false,
     backendConnected: false,
     workspace: '',
-    projectPath: localStorage.getItem(PROJECT_PATH_KEY) || ''
+    projectPath: '',
+    pendingAppends: [],
+    deferredAppends: []
   }),
   computed: {
     renderModes() {
@@ -237,6 +276,28 @@ export default {
       if (!this.projectPath) return ''
       const parts = this.projectPath.replace(/[\\/]+$/, '').split(/[\\/]/)
       return parts[parts.length - 1] || this.projectPath
+    },
+    composerPlaceholder() {
+      if (!this.canChat) return '请先创建 Agent'
+      if (!this.running) return '今天帮你做些什么？'
+      return this.activeInterrupt ? '请先处理上方确认项' : '输入补充指令，将在下一轮处理…'
+    },
+    primaryActionTitle() {
+      if (this.stopping) return '停止中…'
+      if (this.running && this.draft.trim()) return '发送补充指令'
+      if (this.running) return '停止'
+      return '发送'
+    },
+    activeInterrupt() {
+      for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+        const message = this.messages[index]
+        if (!message || message.role !== 'assistant') continue
+        const part = (message.parts || []).find(
+          (item) => item.type === 'interrupt_card' && item.status === 'PENDING'
+        )
+        if (part) return part
+      }
+      return null
     },
     title() {
       return this.sessionTitle || (this.messages.find((item) => item.role === 'user') || {}).text || '新对话'
@@ -356,6 +417,12 @@ export default {
       try {
         const records = await fetchSessionMessages(item.id)
         this.messages = replaySessionMessages(records)
+        const lastAssistant = [...this.messages].reverse().find((message) => message.role === 'assistant')
+        this.running = Boolean(lastAssistant && (lastAssistant.parts || []).some(
+          (part) => part.type === 'interrupt_card' && part.status === 'PENDING'
+        ))
+        this.pendingAppends = []
+        this.deferredAppends = []
         this.resetScrollFollow()
         this.scroll()
       } catch (error) {
@@ -368,8 +435,13 @@ export default {
       this.sessionId = ''
       this.sessionTitle = ''
       this.selectedAidSessionModel = null
+      this.projectPath = ''
       this.messages = []
       this.draft = ''
+      this.pendingAppends = []
+      this.deferredAppends = []
+      this.running = false
+      this.controller = null
       this.refreshModelSelection()
       this.$nextTick(() => {
         if (this.$refs.composerInput) this.$refs.composerInput.focus()
@@ -430,6 +502,22 @@ export default {
       if (this.composing || event.isComposing || event.keyCode === 229) return
       if (event.shiftKey) return
       event.preventDefault()
+      if (this.running && this.draft.trim()) {
+        this.sendAppend()
+        return
+      }
+      this.send()
+    },
+    onPrimaryAction() {
+      if (this.stopping) return
+      if (this.running && !this.draft.trim()) {
+        this.stop()
+        return
+      }
+      if (this.running) {
+        this.sendAppend()
+        return
+      }
       this.send()
     },
     createAnswer() {
@@ -450,7 +538,15 @@ export default {
         this.$message.warning('请先创建 Agent 并配置模型')
         return
       }
-      if (!text || this.running) return
+      if (this.running) {
+        await this.sendAppend()
+        return
+      }
+      if (!text) return
+      if (this.activeInterrupt) {
+        this.$message.warning('请先处理上方的确认项')
+        return
+      }
       if (this.selectedModelId == null) {
         this.$message.warning('请先选择模型')
         return
@@ -487,13 +583,16 @@ export default {
         }
       } finally {
         if (answer.status === 'running') {
+          promoteLastResponseSegment(answer)
           answer.status = 'success'
           this.finishParts(answer)
         }
-        this.running = false
+        const waiting = answer.status === 'waiting'
+        this.running = waiting
         this.controller = null
+        if (!waiting) this.restoreDeferredAppends()
         this.scroll()
-        this.loadSessions()
+        if (!waiting) this.loadSessions()
       }
     },
     handleEvent(answer, event, questionText) {
@@ -505,20 +604,40 @@ export default {
           }
           break
         case 'think':
+          closeOpenResponseSegment(answer)
           this.applyThink(answer, event)
           break
         case 'resp':
-          answer.content += event.content || ''
+          if (shouldAppendResponseSegment(answer, event)) {
+            this.closeOpenThink(answer)
+            appendResponseSegment(answer, event)
+          }
           break
         case 'tool_call':
+          closeOpenResponseSegment(answer)
           this.closeOpenThink(answer)
           this.applyTool(answer, event)
+          reduceInterruptAnswers(answer, event)
+          break
+        case 'interrupt':
+          closeOpenResponseSegment(answer)
+          this.closeOpenThink(answer)
+          this.applyInterrupt(answer, event)
+          break
+        case 'user_message':
+          closeOpenResponseSegment(answer)
+          reduceAppendEvent(this, answer, event)
           break
         case 'resp_end':
-          answer.status = 'success'
-          this.finishParts(answer)
+          if (answer.status !== 'cancelled') {
+            promoteLastResponseSegment(answer)
+            answer.status = 'success'
+            this.finishParts(answer)
+          }
           break
         case 'error':
+          if (answer.status === 'cancelled') break
+          finishResponseSegments(answer)
           answer.status = 'error'
           answer.error = typeof event.content === 'string' ? event.content : JSON.stringify(event.content || '生成失败')
           this.finishParts(answer)
@@ -528,17 +647,35 @@ export default {
       }
       this.scroll()
     },
+    applyInterrupt(answer, event) {
+      const part = reduceInterruptEvent(answer, event)
+      if (event.type === 'interrupt_requested') {
+        answer.status = 'waiting'
+        this.running = true
+      } else if (event.type === 'interrupt_resuming' || event.type === 'interrupt_resumed') {
+        answer.status = 'running'
+      } else if (event.type === 'interrupt_resume_failed') {
+        answer.status = 'error'
+        answer.error = (event.content && event.content.error) || '中断恢复失败'
+        this.finishParts(answer)
+      } else if (event.type === 'interrupt_cancelled') {
+        answer.status = 'cancelled'
+        this.finishParts(answer)
+      }
+      return part
+    },
     applyThink(answer, event) {
       const last = answer.parts[answer.parts.length - 1]
       const open = last && last.type === 'think' && last.status === 'thinking' ? last : null
       const text = event.content || ''
+      if (!String(text).trim() && !open) return
       if (!event.isFinish) {
         if (open) open.content += text
         else answer.parts.push({ type: 'think', content: text, status: 'thinking', startedAt: Date.now(), duration: null })
         return
       }
       if (open) {
-        if (text) open.content = text
+        if (String(text).trim()) open.content = text
         open.status = 'end'
         open.duration = Date.now() - (open.startedAt || Date.now())
       } else if (text) {
@@ -582,6 +719,7 @@ export default {
       }
     },
     finishParts(answer) {
+      finishResponseSegments(answer)
       answer.parts.forEach((part) => {
         if (part.type === 'think' && part.status === 'thinking') {
           part.status = 'end'
@@ -595,11 +733,163 @@ export default {
       if (!answer.finishedAt) answer.finishedAt = Date.now()
       if (!answer.elapsedMs) answer.elapsedMs = answer.finishedAt - (answer.startedAt || answer.finishedAt)
     },
+    async submitInterrupt(payload) {
+      if (!payload || !payload.batchId) return
+      const answer = [...this.messages].reverse().find((message) => message.role === 'assistant')
+      if (!answer) return
+      const part = payload.part || (answer.parts || []).find((item) => item.type === 'interrupt_card' && item.batchId === payload.batchId)
+      if (part) part.status = 'RESUMING'
+      answer.status = 'running'
+      this.running = true
+      this.controller = new AbortController()
+      try {
+        await resumeChatInterrupt(
+          { batchId: payload.batchId, responses: payload.responses },
+          {
+            signal: this.controller.signal,
+            onEvent: (event) => this.handleEvent(answer, event)
+          }
+        )
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          if (part) part.status = 'PENDING'
+          answer.status = 'error'
+          answer.error = error.message || '中断恢复失败'
+          this.finishParts(answer)
+        }
+      } finally {
+        if (answer.status === 'running') {
+          promoteLastResponseSegment(answer)
+          answer.status = 'success'
+          this.finishParts(answer)
+        }
+        const waiting = answer.status === 'waiting'
+        this.running = waiting
+        this.controller = null
+        if (!waiting) this.restoreDeferredAppends()
+        this.scroll()
+        if (!waiting) this.loadSessions()
+      }
+    },
+    async sendAppend() {
+      if (this.stopping) return
+      const text = this.draft.trim()
+      if (!text || !this.sessionId) {
+        if (!this.sessionId) this.$message.warning('请先发送一轮对话后再追加指令')
+        return
+      }
+      if (this.activeInterrupt) {
+        this.$message.warning('请先处理上方的确认项')
+        return
+      }
+      try {
+        const result = await appendChatMessage({
+          aid: this.selectedAid,
+          sessionId: this.sessionId,
+          message: text
+        })
+        if (!result || !result.queued) {
+          this.$message.warning((result && result.reason) || '追加失败')
+          return
+        }
+        this.draft = ''
+        this.$nextTick(this.autoGrow)
+        if (!this.controller) {
+          this.pendingAppends.push({
+            appendId: result.appendId,
+            content: text,
+            queuePosition: result.queuePosition
+          })
+        }
+      } catch (error) {
+        this.$message.error(error.message || '追加消息失败')
+      }
+    },
+    async cancelAppend(appendId) {
+      try {
+        const result = await cancelChatAppend({
+          aid: this.selectedAid,
+          sessionId: this.sessionId,
+          appendId
+        })
+        if (!result || !result.canceled) {
+          this.$message.info('该指令已经生效或本轮已经结束')
+        }
+        this.pendingAppends = this.pendingAppends.filter((item) => item.appendId !== appendId)
+      } catch (_error) {
+        this.$message.error('取消追加失败')
+      }
+    },
+    restoreDeferredAppends() {
+      if (!this.deferredAppends.length) return
+      const text = this.deferredAppends.splice(0).map((item) => item.content).filter(Boolean).join('\n\n')
+      if (!text) return
+      this.draft = this.draft.trim() ? this.draft + '\n\n' + text : text
+      this.$nextTick(this.autoGrow)
+      this.$message.info('未赶上本轮的补充内容已放回输入框')
+    },
     async stop() {
-      if (!this.running) return
-      if (this.sessionId) stopChat(this.sessionId).catch(() => {})
-      if (this.controller) this.controller.abort()
-      this.running = false
+      if (!this.running || this.stopping) return
+      if (!this.sessionId) {
+        this.$message.warning('本轮尚未建立会话，暂时无法停止')
+        return
+      }
+      this.stopping = true
+      const answer = [...this.messages].reverse().find((message) => message.role === 'assistant')
+      try {
+        const result = await stopChat({ sessionId: this.sessionId })
+        const statusName = result && result.statusName
+        if (!statusName) {
+          this.$message.warning('当前没有可停止的任务')
+          return
+        }
+        this.pendingAppends = []
+        if (answer) {
+          ;(answer.parts || []).forEach((part) => {
+            if (part.type === 'interrupt_card' && (part.status === 'PENDING' || part.status === 'RESUMING')) {
+              part.status = 'CANCELLED'
+            }
+          })
+        }
+        if (statusName === 'CANCELLED') {
+          if (answer) {
+            finishResponseSegments(answer)
+            answer.status = 'cancelled'
+            answer.error = '用户已停止'
+            this.finishParts(answer)
+          }
+          this.running = false
+        } else if (statusName === 'TIMEOUT_CANCELLED') {
+          if (this.controller) this.controller.abort()
+          if (answer) {
+            finishResponseSegments(answer)
+            answer.status = 'cancelled'
+            answer.error = '停止超时，任务已强制收口'
+            this.finishParts(answer)
+          }
+          this.running = false
+          this.controller = null
+        } else if (statusName === 'SUCCEEDED') {
+          if (answer) {
+            promoteLastResponseSegment(answer)
+            answer.status = 'success'
+            this.finishParts(answer)
+          }
+          this.running = false
+        } else if (statusName === 'FAILED') {
+          if (answer) {
+            finishResponseSegments(answer)
+            answer.status = 'error'
+            answer.error = '生成失败'
+            this.finishParts(answer)
+          }
+          this.running = false
+        }
+      } catch (error) {
+        this.$message.error(error.message || '停止失败')
+      } finally {
+        this.stopping = false
+      }
     },
     onModeChange(value) {
       localStorage.setItem(MODE_KEY, value)
@@ -645,7 +935,6 @@ export default {
       const selected = await window.electronAPI.chooseDirectory(this.projectPath || this.workspace)
       if (!selected) return
       this.projectPath = selected
-      localStorage.setItem(PROJECT_PATH_KEY, selected)
     }
   }
 }

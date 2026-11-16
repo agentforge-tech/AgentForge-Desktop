@@ -12,28 +12,31 @@
       <el-collapse-transition>
         <div v-show="open" class="elegant-thinking-body">
           <template v-for="(part, idx) in thinkParts">
-            <ElegantThinkItem v-if="part.type === 'think'" :key="'t' + idx" :part="part" />
+            <ResponseSegmentBlock v-if="part.type === 'response_segment'" :key="'r' + idx" :part="part" mode="elegant" />
+            <ElegantThinkItem v-else-if="part.type === 'think'" :key="'t' + idx" :part="part" />
             <ElegantToolItem v-else-if="part.type === 'tool_card'" :key="'c' + idx" :part="part" />
+            <AppendedUserMessage v-else-if="part.type === 'appended_user_message'" :key="'a' + idx" :part="part" />
+            <InterruptTraceItem v-else-if="part.type === 'interrupt_card'" :key="'i' + idx" :part="part" mode="elegant" />
           </template>
         </div>
       </el-collapse-transition>
     </div>
 
     <!-- 最终回答 -->
-    <div v-if="message.content" class="answer">
+    <div v-if="displayContent" class="answer">
       <MarkdownView
-        :content="message.content"
-        :streaming="message.status === 'running'"
+        :content="displayContent"
+        :streaming="contentStreaming"
         mode="typewriter-blur"
         @render-complete="$emit('render-complete', $event)"
       />
     </div>
 
-    <div v-if="message.status === 'running' && !message.content" class="elegant-typing">
-      <span class="elegant-typing-text">正在处理</span>
+    <div v-if="message.status === 'running'" class="elegant-typing">
+      <span class="elegant-typing-text">正在思考</span>
     </div>
 
-    <div v-if="message.error" class="error-box">
+    <div v-if="message.error && message.status !== 'cancelled'" class="error-box">
       <i class="el-icon-warning-outline"></i>
       <span>{{ message.error }}</span>
     </div>
@@ -45,26 +48,49 @@ import MarkdownView from '../../components/MarkdownView.vue'
 import { formatElapsedDuration } from '../../utils/formatDuration'
 import ElegantThinkItem from './ElegantThinkItem.vue'
 import ElegantToolItem from './ElegantToolItem.vue'
+import AppendedUserMessage from '../../components/AppendedUserMessage.vue'
+import InterruptTraceItem from '../../components/InterruptTraceItem.vue'
+import ResponseSegmentBlock from '../../components/ResponseSegmentBlock.vue'
 
 export default {
   name: 'ElegantMessage',
-  components: { MarkdownView, ElegantThinkItem, ElegantToolItem },
+  components: { MarkdownView, ElegantThinkItem, ElegantToolItem, AppendedUserMessage, InterruptTraceItem, ResponseSegmentBlock },
   props: {
     message: { type: Object, required: true }
   },
   data() {
-    return { open: this.message.status === 'running' }
+    return { open: this.message.status === 'running' || this.message.status === 'waiting' }
   },
   computed: {
     thinkParts() {
-      return (this.message.parts || []).filter((p) => p.type === 'think' || p.type === 'tool_card')
+      return (this.message.parts || []).filter(
+        (p) => p !== this.activeResponseSegment &&
+          (p.type !== 'response_segment' || String(p.content || '').trim()) &&
+          (p.type === 'response_segment' || p.type === 'think' || p.type === 'tool_card' || p.type === 'appended_user_message' || p.type === 'interrupt_card')
+      )
+    },
+    activeResponseSegment() {
+      const parts = this.message.parts || []
+      for (let index = parts.length - 1; index >= 0; index -= 1) {
+        const part = parts[index]
+        if (part.type === 'response_segment' && part.status === 'streaming') return part
+      }
+      return null
+    },
+    displayContent() {
+      return this.message.content || (this.activeResponseSegment && this.activeResponseSegment.content) || ''
+    },
+    contentStreaming() {
+      return !this.message.content && !!this.activeResponseSegment && this.message.status === 'running'
     },
     elapsed() {
       return formatElapsedDuration(this.message.elapsedMs)
     },
     statusTitle() {
       if (this.message.status === 'running') return '正在处理'
+      if (this.message.status === 'waiting') return '等待确认'
       if (this.message.status === 'error') return '处理失败'
+      if (this.message.status === 'cancelled') return '已取消'
       return '已完成'
     },
     doneElapsed() {
@@ -73,14 +99,17 @@ export default {
   },
   watch: {
     'message.status'(val) {
-      this.open = val === 'running'
+      this.open = val === 'running' || val === 'waiting'
     }
   }
 }
 </script>
 
 <style scoped>
-.elegant-thinking { margin: 0 0 12px; }
+.elegant-thinking { margin: 0 0 4px; }
+/* 思考/工具过程与下方“正在思考”紧邻时收紧间距，避免出现大段空白。 */
+.elegant-thinking.running { margin-bottom: 2px; }
+.elegant-thinking.running .elegant-thinking-body { padding-bottom: 0; }
 .elegant-thinking-head {
   display: flex;
   align-items: center;
@@ -101,13 +130,14 @@ export default {
 .elegant-thinking-arrow.open { transform: rotate(180deg); }
 .elegant-thinking-body { padding: 4px 0 1px; }
 
-.answer { margin: 2px 0 8px; }
+.answer { margin: 0 0 8px; }
 
 .elegant-typing {
   display: flex;
   align-items: center;
-  height: 32px; /* 与发布页左侧 .bot-avatar 高度一致 */
+  height: 22px;
   padding: 0;
+  margin-top: 2px;
 }
 .elegant-typing-text {
   display: inline-block;

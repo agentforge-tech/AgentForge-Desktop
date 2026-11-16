@@ -216,6 +216,7 @@ export default {
 .af-markdown.is-streaming { overflow-anchor: none; }
 .markdown-body { display: flow-root; font-size: 14px; line-height: 1.72; color: #24292f; }
 .markdown-body > *:first-child { margin-top: 0; }
+.af-markdown .markdown-body > .af-code-block:first-child { margin-top: 0; }
 .markdown-body > *:last-child { margin-bottom: 0; }
 /* stable/tail 流式时分属两个容器，完成后合并。必须恢复 tail 首元素间距，否则 :first-child 身份变化会导致结束瞬间跳位。 */
 .markdown-body--stable:not(:empty) + .markdown-body--tail:not(:empty) > p:first-child,
