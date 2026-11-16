@@ -3,8 +3,14 @@ package cloud.changlu.agentforge.desktop.modules.agent.runtime;
 import cloud.changlu.agentforge.agent.domain.AgentRequest;
 import cloud.changlu.agentforge.agent.extend.memory.window.MessageWindowChatMemoryProvider;
 import cloud.changlu.agentforge.agent.extend.middlewares.LoggingIAgentMiddleware;
+import cloud.changlu.agentforge.agent.extend.middlewares.append.UserMessageAppendMiddleware;
+import cloud.changlu.agentforge.agent.extend.middlewares.append.event.UserMessageAppendEventListener;
+import cloud.changlu.agentforge.agent.extend.middlewares.append.service.IUserMessageAppendService;
+import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptBatchResumeCommand;
+import cloud.changlu.agentforge.agent.governance.interrupt.spi.AgentInterruptStore;
 import cloud.changlu.agentforge.desktop.config.DesktopProperties;
 import cloud.changlu.agentforge.desktop.config.DesktopAgentPrompt;
+import cloud.changlu.agentforge.desktop.modules.chat.governance.DesktopPermissionModule;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreamingMiddleware;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.SessionLifecycleMiddleware;
 import cloud.changlu.agentforge.desktop.store.DesktopConfigStore;
@@ -36,6 +42,9 @@ public class AgentRuntimeService {
     private final SqliteChatMemoryStore memoryStore;
     private final ServiceStreamingMiddleware streamingMiddleware;
     private final SessionLifecycleMiddleware sessionLifecycleMiddleware;
+    private final IUserMessageAppendService appendService;
+    private final UserMessageAppendEventListener appendEventListener;
+    private final AgentInterruptStore agentInterruptStore;
 
     private final Map<String, HarnessAgent> cache = new ConcurrentHashMap<String, HarnessAgent>();
     private volatile long lastRevision = -1L;
@@ -45,12 +54,18 @@ public class AgentRuntimeService {
             DesktopProperties properties,
             SqliteChatMemoryStore memoryStore,
             ServiceStreamingMiddleware streamingMiddleware,
-            SessionLifecycleMiddleware sessionLifecycleMiddleware) {
+            SessionLifecycleMiddleware sessionLifecycleMiddleware,
+            IUserMessageAppendService appendService,
+            UserMessageAppendEventListener appendEventListener,
+            AgentInterruptStore agentInterruptStore) {
         this.configStore = configStore;
         this.properties = properties;
         this.memoryStore = memoryStore;
         this.streamingMiddleware = streamingMiddleware;
         this.sessionLifecycleMiddleware = sessionLifecycleMiddleware;
+        this.appendService = appendService;
+        this.appendEventListener = appendEventListener;
+        this.agentInterruptStore = agentInterruptStore;
     }
 
     public HarnessAgent getOrCreate(
@@ -81,17 +96,15 @@ public class AgentRuntimeService {
     }
 
     public String builtInSystemPrompt(String aid) {
-        Workspace workspace = resolveWorkspace(aid, null);
-        LocalRuntime runtime = LocalRuntime.builder().workspace(workspace).build();
-        try {
-            return DesktopAgentPrompt.render(null) + "\n\n" + runtime.systemPrompt().trim();
-        } finally {
-            runtime.close();
-        }
+        return DesktopAgentPrompt.render(null);
     }
 
     public void stream(HarnessAgent agent, AgentRequest request) {
         agent.runStream(request).ignoreErrors().start();
+    }
+
+    public void resumeInterruptStream(HarnessAgent agent, InterruptBatchResumeCommand command) {
+        agent.resumeInterruptStream(command).ignoreErrors().start();
     }
 
     public String createExecutionId(HarnessAgent agent) {
@@ -172,11 +185,10 @@ public class AgentRuntimeService {
         MessageWindowChatMemoryProvider memoryProvider =
                 new MessageWindowChatMemoryProvider(maxMessages, memoryStore);
 
-        String systemPrompt = DesktopAgentPrompt.render(null);
-
         ChatModel chatModel = LlmFactory.buildChatModel(llm);
         StreamingChatModel streamingChatModel = LlmFactory.buildStreamChatModel(llm);
         LocalRuntime runtime = LocalRuntime.builder().workspace(workspace).build();
+        String systemPrompt = DesktopAgentPrompt.render(null);
         try {
             return HarnessAgent.builder()
                     .runtime(runtime)
@@ -185,6 +197,8 @@ public class AgentRuntimeService {
                     .chatModel(chatModel)
                     .streamingChatModel(streamingChatModel)
                     .chatMemoryProvider(memoryProvider)
+                    .permissionInterruptModule(DesktopPermissionModule.build(agentInterruptStore))
+                    .middleware(new UserMessageAppendMiddleware(appendService, appendEventListener))
                     .middleware(new LoggingIAgentMiddleware())
                     .middleware(sessionLifecycleMiddleware)
                     .middleware(streamingMiddleware)

@@ -78,6 +78,7 @@ public class SessionLifecycleMiddleware implements IStreamingIAgentMiddleware {
                             state.aiMessageId,
                             SessionMessageStatusEnum.RUNNING.getCode(),
                             now,
+                            chatContext.getExecutionId(),
                             now);
                     agentSessionMapper.updateStatusBySessionId(
                             state.sessionId, SessionStatusEnum.RUNNING.getCode(), now);
@@ -191,6 +192,70 @@ public class SessionLifecycleMiddleware implements IStreamingIAgentMiddleware {
     @Override
     public void onStopWithError(int currentStep, Throwable error, AgentChatContext chatContext) {
         finish(chatContext, SessionMessageStatusEnum.FAILED, message(error));
+    }
+
+    /** 收集由其他业务中间件产生的事件，使实时流与历史重放使用同一份协议。 */
+    public void collectEvent(Object memoryId, StreamEventResponse event) {
+        RunState state = memoryId == null ? null : states.get(memoryId);
+        if (state != null && event != null) {
+            state.collect(event);
+        }
+    }
+
+    /** HITL 挂起不收口 RunState，仅刷新事件并把会话置为等待人工处理。 */
+    public void markWaitingForHitl(Object memoryId, StreamEventResponse event) {
+        RunState state = memoryId == null ? null : states.get(memoryId);
+        if (state == null) {
+            return;
+        }
+        if (event != null) {
+            state.collect(event);
+        }
+        String now = nowString();
+        String eventsJson = toJson(state.events);
+        safeRun(
+                "mark waiting hitl",
+                () -> {
+                    agentSessionMessageMapper.updateSnapshot(
+                            state.aiMessageId,
+                            SessionMessageStatusEnum.WAITING_HITL.getCode(),
+                            eventsJson,
+                            now);
+                    agentSessionMapper.updateStatusBySessionId(
+                            state.sessionId, SessionStatusEnum.WAITING_HITL.getCode(), now);
+                });
+    }
+
+    /** 恢复原 RunState，不创建新的 AI 消息。 */
+    public void markResuming(Object memoryId, StreamEventResponse event) {
+        RunState state = memoryId == null ? null : states.get(memoryId);
+        if (state == null) {
+            return;
+        }
+        if (event != null) {
+            state.collect(event);
+        }
+        String now = nowString();
+        safeRun(
+                "mark resuming hitl",
+                () -> {
+                    agentSessionMessageMapper.updateStatus(
+                            state.aiMessageId, SessionMessageStatusEnum.RUNNING.getCode(), now);
+                    agentSessionMapper.updateStatusBySessionId(
+                            state.sessionId, SessionStatusEnum.RUNNING.getCode(), now);
+                });
+    }
+
+    /** 等待 HITL 时用户主动停止，直接收口原 AI 消息。 */
+    public void cancelWaitingForHitl(Object memoryId, StreamEventResponse event) {
+        RunState state = memoryId == null ? null : states.get(memoryId);
+        if (state == null) {
+            return;
+        }
+        if (event != null) {
+            state.collect(event);
+        }
+        finishState(state, SessionMessageStatusEnum.CANCELLED, "用户取消了等待中的人工交互");
     }
 
     /** 异常兜底：Controller 启动失败时也能收口。 */

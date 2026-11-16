@@ -6,6 +6,13 @@ public final class SessionStatusTransfer {
 
     private SessionStatusTransfer() {}
 
+    public static boolean isTerminal(SessionMessageStatusEnum status) {
+        return status == SessionMessageStatusEnum.FAILED
+                || status == SessionMessageStatusEnum.CANCELLED
+                || status == SessionMessageStatusEnum.SUCCEEDED
+                || status == SessionMessageStatusEnum.TIMEOUT_CANCELLED;
+    }
+
     public static SessionMessageStatusEnum fromStopResult(StopResultState state) {
         if (state == null) {
             return SessionMessageStatusEnum.FAILED;

@@ -5,7 +5,10 @@ public enum SessionMessageStatusEnum {
     RUNNING(2, "处理中"),
     FAILED(3, "失败"),
     CANCELLED(4, "取消"),
-    SUCCEEDED(5, "成功");
+    SUCCEEDED(5, "成功"),
+    TIMEOUT_CANCELLED(6, "超时取消"),
+    CANCELLING(7, "取消中"),
+    WAITING_HITL(8, "等待人工处理");
 
     private final Integer code;
     private final String description;
@@ -17,4 +20,16 @@ public enum SessionMessageStatusEnum {
 
     public Integer getCode() { return code; }
     public String getDescription() { return description; }
+
+    public static SessionMessageStatusEnum getByCode(Integer code) {
+        if (code == null) {
+            return null;
+        }
+        for (SessionMessageStatusEnum value : values()) {
+            if (value.code.equals(code)) {
+                return value;
+            }
+        }
+        return null;
+    }
 }

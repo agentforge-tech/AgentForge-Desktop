@@ -13,6 +13,8 @@ public class DesktopProperties {
     private String rootDir = System.getProperty("user.home") + "/.agentforge-desktop";
     private String token = "";
     private String configFile = "";
+    private long cancelWaitTimeoutMs = 15000L;
+    private long cancelPollIntervalMs = 200L;
 
     public Path rootPath() {
         return Paths.get(rootDir).toAbsolutePath().normalize();
@@ -59,5 +61,21 @@ public class DesktopProperties {
 
     public void setConfigFile(String configFile) {
         this.configFile = configFile;
+    }
+
+    public long getCancelWaitTimeoutMs() {
+        return cancelWaitTimeoutMs;
+    }
+
+    public void setCancelWaitTimeoutMs(long cancelWaitTimeoutMs) {
+        this.cancelWaitTimeoutMs = cancelWaitTimeoutMs;
+    }
+
+    public long getCancelPollIntervalMs() {
+        return cancelPollIntervalMs;
+    }
+
+    public void setCancelPollIntervalMs(long cancelPollIntervalMs) {
+        this.cancelPollIntervalMs = cancelPollIntervalMs;
     }
 }

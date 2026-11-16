@@ -19,6 +19,9 @@ public interface AgentSessionMapper {
     @Select("SELECT * FROM ai_agent_session WHERE id=#{id} AND is_deleted=0")
     AgentSessionPojo selectById(@Param("id") Long id);
 
+    @Select("SELECT * FROM ai_agent_session WHERE session_id=#{sessionId} AND is_deleted=0 LIMIT 1")
+    AgentSessionPojo selectBySessionId(@Param("sessionId") String sessionId);
+
     @Insert("INSERT INTO ai_agent_session(session_id,aid,title,status,model_id,pin_order,create_user_id,is_deleted,create_time,modify_time)"
             + " VALUES(#{sessionId},#{aid},#{title},#{status},#{modelId},#{pinOrder},#{createUserId},#{isDeleted},#{createTime},#{modifyTime})")
     @Options(useGeneratedKeys = true, keyProperty = "id")

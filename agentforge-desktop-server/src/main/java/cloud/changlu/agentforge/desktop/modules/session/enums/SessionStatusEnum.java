@@ -4,7 +4,9 @@ public enum SessionStatusEnum {
     IDLE(0, "空闲"),
     RUNNING(1, "运行中"),
     FINISHED(2, "完成"),
-    FAILED(3, "失败");
+    FAILED(3, "失败"),
+    CANCELLING(4, "取消中"),
+    WAITING_HITL(5, "等待人工处理");
 
     private final Integer code;
     private final String description;

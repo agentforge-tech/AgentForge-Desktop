@@ -19,7 +19,7 @@
         <spring-boot.version>2.7.18</spring-boot.version>
         <mybatis-spring-boot.version>2.3.2</mybatis-spring-boot.version>
         <sqlite-jdbc.version>3.46.1.3</sqlite-jdbc.version>
-        <agentforge.version>1.0.0-SNAPSHOT</agentforge.version>
+        <agentforge.version>1.0.1-SNAPSHOT</agentforge.version>
     </properties>
 
     <dependencyManagement>

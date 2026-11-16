@@ -3,6 +3,8 @@ package cloud.changlu.agentforge.desktop.modules.chat.middleware;
 import cloud.changlu.agentforge.agent.component.middleware.IStreamingIAgentMiddleware;
 import cloud.changlu.agentforge.agent.domain.AgentChatContext;
 import cloud.changlu.agentforge.agent.domain.StopResult;
+import cloud.changlu.agentforge.agent.governance.interrupt.domain.AgentSuspendInfo;
+import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptResumeContext;
 import cloud.changlu.agentforge.agent.stream.PartialThinking;
 import cloud.changlu.agentforge.model.chat.message.ToolExecutionRequest;
 import cloud.changlu.agentforge.model.chat.request.ChatRequest;
@@ -11,7 +13,10 @@ import cloud.changlu.agentforge.service.protocol.StreamEventResponse;
 import cloud.changlu.agentforge.service.protocol.ToolCallResult;
 import cloud.changlu.agentforge.service.protocol.processor.AiErrorProcessor;
 import cloud.changlu.agentforge.service.protocol.processor.AiResponseProcessor;
+import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptRuntimeRegistry;
 import cloud.changlu.agentforge.service.protocol.processor.AiSessionProcessor;
+import cloud.changlu.agentforge.service.protocol.processor.interrupt.InterruptEventProcessor;
+import cloud.changlu.agentforge.service.protocol.processor.retry.AiRetryProcessor;
 import cloud.changlu.agentforge.service.protocol.processor.think.AiThinkProcessor;
 import cloud.changlu.agentforge.service.protocol.processor.tool.AiToolCallProcessor;
 
@@ -28,6 +33,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 构造 {@link StreamEventResponse} 后写出到当前会话的 SSE。
  */
 public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
+
+    private final DesktopInterruptRuntimeRegistry interruptRegistry;
+    private final SessionLifecycleMiddleware lifecycleMiddleware;
+
+    public ServiceStreamingMiddleware(
+            DesktopInterruptRuntimeRegistry interruptRegistry,
+            SessionLifecycleMiddleware lifecycleMiddleware) {
+        this.interruptRegistry = interruptRegistry;
+        this.lifecycleMiddleware = lifecycleMiddleware;
+    }
 
     /** memoryId -> 本次运行的会话输出上下文 */
     private final Map<Object, SessionContext> sessions =
@@ -46,6 +61,122 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         SessionContext context = sessions.remove(memoryId);
         if (context != null) {
             context.dispose();
+        }
+    }
+
+    /** 供追加消息等运行期扩展事件复用当前会话的串行 SSE 输出。 */
+    public void publish(Object memoryId, StreamEventResponse event) {
+        SessionContext context = memoryId == null ? null : sessions.get(memoryId);
+        if (context != null && event != null) {
+            context.send(event);
+        }
+    }
+
+    /** 等待 HITL 时没有活动 Agent 线程，直接取消批次并收口原消息。 */
+    public boolean cancelWaitingInterrupt(Object memoryId) {
+        DesktopInterruptRuntimeRegistry.BatchContext batch =
+                interruptRegistry.cancelByMemoryId(memoryId);
+        if (batch == null) {
+            return false;
+        }
+        StreamEventResponse event = InterruptEventProcessor.cancelled(batch.eventContent());
+        publish(memoryId, event);
+        lifecycleMiddleware.cancelWaitingForHitl(memoryId, event);
+        unbind(memoryId);
+        interruptRegistry.release(memoryId);
+        return true;
+    }
+
+    /** Framework 抢占或恢复失败时推送 interrupt_resume_failed，避免页面停在 RESUMING。 */
+    public void interruptResumeFailed(Object memoryId, String batchId, Throwable error) {
+        DesktopInterruptRuntimeRegistry.BatchContext batch =
+                interruptRegistry.requireBatch(batchId);
+        if (batch.getStatus() == DesktopInterruptRuntimeRegistry.Status.FAILED) {
+            return;
+        }
+        interruptRegistry.failed(batchId);
+        Map<String, Object> content =
+                new java.util.LinkedHashMap<String, Object>(batch.eventContent());
+        content.put("error", safeMessage(error));
+        StreamEventResponse event = InterruptEventProcessor.failed(content);
+        publish(memoryId, event);
+        lifecycleMiddleware.collectEvent(memoryId, event);
+    }
+
+    /** 权限审核 / AskUser 中断被冻结时调用：推送卡片并关闭当前 SSE，等待恢复请求。 */
+    @Override
+    public void onInterruptRequested(
+            int currentStep, AgentSuspendInfo suspendInfo, AgentChatContext chatContext) {
+        if (suspendInfo == null || chatContext == null) {
+            return;
+        }
+        DesktopInterruptRuntimeRegistry.BatchContext batch =
+                interruptRegistry.suspend(chatContext.getMemoryId(), suspendInfo);
+        StreamEventResponse event = InterruptEventProcessor.requested(batch.eventContent());
+        publish(chatContext.getMemoryId(), event);
+        lifecycleMiddleware.markWaitingForHitl(chatContext.getMemoryId(), event);
+        unbind(chatContext.getMemoryId());
+    }
+
+    /** 冻结批次开始恢复前调用。 */
+    @Override
+    public void onBeforeInterruptResume(
+            InterruptResumeContext resumeContext, AgentChatContext chatContext) {
+        if (resumeContext == null || chatContext == null) {
+            return;
+        }
+        DesktopInterruptRuntimeRegistry.BatchContext batch =
+                interruptRegistry.requireBatch(resumeContext.getBatchId());
+        StreamEventResponse event = InterruptEventProcessor.resuming(batch.eventContent());
+        publish(chatContext.getMemoryId(), event);
+        lifecycleMiddleware.markResuming(chatContext.getMemoryId(), event);
+    }
+
+    /** 冻结工具结果已写回记忆后调用。 */
+    @Override
+    public void onAfterInterruptResume(
+            InterruptResumeContext resumeContext, AgentChatContext chatContext) {
+        if (resumeContext == null || chatContext == null) {
+            return;
+        }
+        interruptRegistry.completed(resumeContext.getBatchId());
+        DesktopInterruptRuntimeRegistry.BatchContext batch =
+                interruptRegistry.requireBatch(resumeContext.getBatchId());
+        StreamEventResponse event = InterruptEventProcessor.resumed(batch.eventContent());
+        publish(chatContext.getMemoryId(), event);
+        lifecycleMiddleware.collectEvent(chatContext.getMemoryId(), event);
+    }
+
+    /** 中断恢复或冻结工具执行失败时调用。 */
+    @Override
+    public void onInterruptResumeError(
+            InterruptResumeContext resumeContext, Throwable error, AgentChatContext chatContext) {
+        if (resumeContext == null || chatContext == null) {
+            return;
+        }
+        interruptRegistry.failed(resumeContext.getBatchId());
+        DesktopInterruptRuntimeRegistry.BatchContext batch =
+                interruptRegistry.requireBatch(resumeContext.getBatchId());
+        Map<String, Object> content = new java.util.LinkedHashMap<String, Object>(batch.eventContent());
+        content.put("error", safeMessage(error));
+        StreamEventResponse event = InterruptEventProcessor.failed(content);
+        publish(chatContext.getMemoryId(), event);
+        lifecycleMiddleware.collectEvent(chatContext.getMemoryId(), event);
+    }
+
+    /** 模型调用重试提示。 */
+    @Override
+    public void onAiCallRetry(
+            int currentStep,
+            ChatRequest chatRequest,
+            AgentChatContext chatContext,
+            int retryCount,
+            int maxRetries,
+            long delayMs,
+            Exception lastException) {
+        SessionContext context = state(chatContext);
+        if (context != null) {
+            context.send(AiRetryProcessor.retry(currentStep, retryCount, maxRetries, delayMs));
         }
     }
 
@@ -169,7 +300,9 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         if (context != null) {
             context.send(AiResponseProcessor.respEnd(true));
         }
-        unbind(chatContext == null ? null : chatContext.getMemoryId());
+        Object memoryId = chatContext == null ? null : chatContext.getMemoryId();
+        unbind(memoryId);
+        interruptRegistry.release(memoryId);
     }
 
     @Override
@@ -178,7 +311,9 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         if (context != null) {
             context.send(AiErrorProcessor.respError(safeMessage(error)));
         }
-        unbind(chatContext == null ? null : chatContext.getMemoryId());
+        Object memoryId = chatContext == null ? null : chatContext.getMemoryId();
+        unbind(memoryId);
+        interruptRegistry.release(memoryId);
     }
 
     private SessionContext state(AgentChatContext chatContext) {

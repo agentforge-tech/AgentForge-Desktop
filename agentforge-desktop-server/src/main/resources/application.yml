@@ -23,6 +23,8 @@ agentforge:
     root-dir: ${AGENTFORGE_DESKTOP_ROOT_DIR:${user.home}/.agentforge-desktop}
     token: ${AGENTFORGE_DESKTOP_TOKEN:}
     config-file: ${AGENTFORGE_DESKTOP_CONFIG:}
+    cancel-wait-timeout-ms: ${AGENTFORGE_CHAT_CANCEL_WAIT_TIMEOUT_MS:15000}
+    cancel-poll-interval-ms: ${AGENTFORGE_CHAT_CANCEL_POLL_INTERVAL_MS:200}
 
 logging:
   level:

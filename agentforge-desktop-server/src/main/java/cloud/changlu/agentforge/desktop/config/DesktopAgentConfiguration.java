@@ -1,5 +1,15 @@
 package cloud.changlu.agentforge.desktop.config;
 
+import cloud.changlu.agentforge.agent.extend.middlewares.append.event.UserMessageAppendEventListener;
+import cloud.changlu.agentforge.agent.governance.interrupt.spi.AgentInterruptStore;
+import cloud.changlu.agentforge.agent.extend.middlewares.append.store.UserMessageAppendStore;
+import cloud.changlu.agentforge.desktop.modules.chat.append.SqliteUserMessageAppendStore;
+import cloud.changlu.agentforge.desktop.modules.chat.dao.AgentInterruptSnapshotMapper;
+import cloud.changlu.agentforge.desktop.modules.chat.dao.UserMessageAppendMapper;
+import cloud.changlu.agentforge.desktop.modules.chat.interrupt.AgentInterruptSnapshotCodec;
+import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptRuntimeRegistry;
+import cloud.changlu.agentforge.desktop.modules.chat.interrupt.SqliteAgentInterruptStore;
+import cloud.changlu.agentforge.desktop.modules.chat.middleware.DesktopUserMessageAppendEventListener;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreamingMiddleware;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.SessionLifecycleMiddleware;
 import cloud.changlu.agentforge.desktop.modules.session.dao.AgentSessionMapper;
@@ -14,8 +24,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 public class DesktopAgentConfiguration {
 
     @Bean
-    public ServiceStreamingMiddleware serviceStreamingMiddleware() {
-        return new ServiceStreamingMiddleware();
+    public DesktopInterruptRuntimeRegistry desktopInterruptRuntimeRegistry() {
+        return new DesktopInterruptRuntimeRegistry();
     }
 
     @Bean
@@ -25,6 +35,33 @@ public class DesktopAgentConfiguration {
             ObjectMapper objectMapper) {
         return new SessionLifecycleMiddleware(
                 agentSessionMapper, agentSessionMessageMapper, objectMapper);
+    }
+
+    @Bean
+    public ServiceStreamingMiddleware serviceStreamingMiddleware(
+            DesktopInterruptRuntimeRegistry interruptRegistry,
+            SessionLifecycleMiddleware sessionLifecycleMiddleware) {
+        return new ServiceStreamingMiddleware(interruptRegistry, sessionLifecycleMiddleware);
+    }
+
+    @Bean
+    public AgentInterruptStore agentInterruptStore(
+            AgentInterruptSnapshotMapper mapper, ObjectMapper objectMapper) {
+        return new SqliteAgentInterruptStore(
+                mapper, new AgentInterruptSnapshotCodec(objectMapper));
+    }
+
+    @Bean
+    public UserMessageAppendStore userMessageAppendStore(UserMessageAppendMapper mapper) {
+        return new SqliteUserMessageAppendStore(mapper);
+    }
+
+    @Bean
+    public UserMessageAppendEventListener userMessageAppendEventListener(
+            ServiceStreamingMiddleware streamingMiddleware,
+            SessionLifecycleMiddleware lifecycleMiddleware) {
+        return new DesktopUserMessageAppendEventListener(
+                streamingMiddleware, lifecycleMiddleware);
     }
 
     @Bean
