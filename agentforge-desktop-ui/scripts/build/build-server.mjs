@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { agentforgeHome, serverDir } from '../lib/paths.mjs'
 import { run } from '../lib/exec.mjs'
-import { findMaven, localRepository, coreArtifact } from '../lib/maven.mjs'
+import { findMaven, localRepository, requiredArtifacts } from '../lib/maven.mjs'
 import { findJavaHome } from '../lib/java.mjs'
 
 const desktopHome = agentforgeHome()
@@ -26,8 +26,9 @@ const env = {
 }
 
 const repo = localRepository(mvn, env)
-const coreJar = coreArtifact(repo)
-const coreMissing = !fs.existsSync(coreJar)
+const artifacts = requiredArtifacts(repo)
+const missing = artifacts.filter((file) => !fs.existsSync(file))
+const coreMissing = missing.length > 0
 if (coreMissing || process.env.AGENTFORGE_REBUILD_CORE === '1') {
   if (!fs.existsSync(desktopHome)) {
     throw new Error(`AgentForge source not found: ${desktopHome}. Set AGENTFORGE_HOME or run AgentForge core install manually.`)
@@ -35,11 +36,11 @@ if (coreMissing || process.env.AGENTFORGE_REBUILD_CORE === '1') {
   console.log(`[AgentForge] installing core artifacts from ${desktopHome}`)
   run(mvn, [
     '-f', path.join(desktopHome, 'pom.xml'),
-    '-pl', ':agentforge-ai-bom,:agentforge-model-api,:agentforge-model-core,:agentforge-model-openai,:agentforge-model-anthropic,:agentforge-model-registry,:agentforge-agent-core',
+    '-pl', ':agentforge-ai-bom,:agentforge-model-api,:agentforge-model-core,:agentforge-model-openai,:agentforge-model-anthropic,:agentforge-model-registry,:agentforge-agent-core,:agentforge-harness-agent,:agentforge-service-protocal',
     '-am', 'install', '-DskipTests', '-Dspotless.check.skip=true', '-Dspotless.apply.skip=true'
   ], { env })
 } else {
-  console.log(`[AgentForge] core artifacts found: ${coreJar}`)
+  console.log(`[AgentForge] required artifacts found: ${artifacts.length}`)
 }
 
 run(mvn, [

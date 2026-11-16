@@ -84,7 +84,7 @@
 2. 桌面端需要 SQLite、单用户、Token 鉴权、动态端口、内置 JRE 等定制。
 3. 移植量可控：核心是 4 张表（迁移记录 + 会话 + 消息 + 记忆）、5 个 Controller、2 个中间件、1 个 Agent 工厂。
 
-**前置条件**：AgentForge 核心构件以 `1.0.0-SNAPSHOT` 从本地源码安装，构建脚本会自动检测并安装，见第 8 节。
+**前置条件**：AgentForge 核心构件以 `1.0.1-SNAPSHOT` 从本地源码安装，构建脚本会自动检测并安装，见第 8 节。
 
 ---
 
@@ -300,7 +300,7 @@ sql-applied/
     <dependency>
       <groupId>cloud.changlu.agentforge</groupId>
       <artifactId>agentforge-ai-bom</artifactId>
-      <version>1.0.0-SNAPSHOT</version>
+      <version>1.0.1-SNAPSHOT</version>
       <type>pom</type><scope>import</scope>
     </dependency>
   </dependencies>
@@ -1158,7 +1158,7 @@ local-agent:backend-exit       后端异常退出通知
 ```text
 1. 定位 mvn（AGENTFORGE_MAVEN / PATH / Homebrew / IDEA 内置）
 2. 解析 AGENTFORGE_HOME（默认 ../AgentForge，可用环境变量覆盖）
-3. 检查本地仓库是否已有 agentforge-agent-core:1.0.0-SNAPSHOT
+3. 检查本地仓库是否已有 agentforge-agent-core:1.0.1-SNAPSHOT
    不存在或 AGENTFORGE_REBUILD_CORE=1 时从 AgentForge 源码安装
 4. mvn -f ../agentforge-desktop-server/pom.xml clean package -DskipTests
 5. 产物：agentforge-desktop-server/target/agentforge-desktop-server.jar

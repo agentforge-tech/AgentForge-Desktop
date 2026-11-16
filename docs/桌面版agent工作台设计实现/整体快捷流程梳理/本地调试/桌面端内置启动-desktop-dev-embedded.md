@@ -230,7 +230,7 @@ agentforge-agent-core
 `build-server.mjs` 会先查询 Maven 本地仓库，并检查：
 
 ```text
-<localRepository>/cloud/changlu/agentforge/agentforge-agent-core/1.0.0-SNAPSHOT/agentforge-agent-core-1.0.0-SNAPSHOT.jar
+<localRepository>/cloud/changlu/agentforge/agentforge-agent-core/1.0.1-SNAPSHOT/agentforge-agent-core-1.0.1-SNAPSHOT.jar
 ```
 
 判断逻辑：
@@ -365,7 +365,7 @@ serverDir   = <repo>/agentforge-desktop-server
 2. 查找 JDK 8
 3. 构造环境：JAVA_HOME=<JDK8>，PATH=<JDK8>/bin:<原 PATH>
 4. 查询 Maven 本地仓库
-5. 检查 agentforge-agent-core:1.0.0-SNAPSHOT
+5. 检查 agentforge-agent-core:1.0.1-SNAPSHOT
 6. 必要时安装核心构件
 7. mvn -f agentforge-desktop-server/pom.xml clean package -DskipTests
 8. 产出 agentforge-desktop-server/target/agentforge-desktop-server.jar
@@ -1076,7 +1076,7 @@ npm run desktop:dev:embedded
 [AgentForge] Maven=/opt/homebrew/bin/mvn
   -> build-server 选中的 Maven
 
-[AgentForge] core artifacts found: /Users/.../.m2/.../agentforge-agent-core-1.0.0-SNAPSHOT.jar
+[AgentForge] core artifacts found: /Users/.../.m2/.../agentforge-agent-core-1.0.1-SNAPSHOT.jar
   -> 复用本地核心构件；若显示 installing 则正在从源码安装
 
 [AgentForge] server jar build completed

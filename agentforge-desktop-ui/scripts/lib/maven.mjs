@@ -34,7 +34,7 @@ export function coreArtifact(repo) {
     'changlu',
     'agentforge',
     'agentforge-agent-core',
-    '1.0.0-SNAPSHOT',
-    'agentforge-agent-core-1.0.0-SNAPSHOT.jar'
+    '1.0.1-SNAPSHOT',
+    'agentforge-agent-core-1.0.1-SNAPSHOT.jar'
   )
 }

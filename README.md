@@ -24,6 +24,8 @@ Most agent frameworks assume a server, a database, and a developer on call. Agen
 - **Workbench** — session history, pinned/renamed/deleted conversations, and a detail pane with markdown, highlighted code blocks, and one-click copy.
 - **Streaming chat** — `session / think / resp / tool_call / resp_end / error` events over SSE, plus replay of persisted events for historical messages.
 - **Workspace selection** — pick a local project folder per conversation; the agent runs against that workspace with environment-aware built-in instructions.
+- **Human-in-the-loop** — built-in `ask_user` questions plus approval prompts for high-risk bash commands such as `rm`; interrupted tool batches resume from the same message. Frozen snapshots are persisted in SQLite (`ai_agent_interrupt_snapshot`) for audit and runtime rebuilds.
+- **In-run instructions** — append extra guidance while the agent is running; queued instructions are injected at the next model boundary and deferred ones return to the composer.
 - **Model management** — CRUD, connectivity checks, Function Call tests, and per-agent model allowlists/defaults.
 - **Agent configuration** — model set, default model, memory window, and a read-only preview of the composed built-in system prompt. Saved changes take effect immediately.
 - **Dual render modes** — debug and polished modes for inspecting raw reasoning versus reading the final answer.
