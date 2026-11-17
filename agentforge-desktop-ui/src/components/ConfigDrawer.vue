@@ -56,19 +56,7 @@
         </section>
 
         <section v-show="tab === 'models'" class="settings-section">
-          <header class="settings-section-head"><b>模型设置</b><span>选择对话模型或管理模型配置</span></header>
-          <el-form label-position="top" size="small">
-            <el-form-item label="当前对话模型">
-              <el-select v-model="activeModelId" placeholder="选择模型" style="width: 100%" @change="$emit('select-model', $event)">
-                <el-option
-                  v-for="model in selectableModels"
-                  :key="model.id"
-                  :label="model.name + ' · ' + model.modelName"
-                  :value="model.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-form>
+          <header class="settings-section-head"><b>模型设置</b><span>管理模型连接与基础配置</span></header>
           <div class="drawer-model-list">
             <div v-for="model in models" :key="model.id" class="drawer-model-item">
               <div class="drawer-model-main">
@@ -100,13 +88,23 @@
         <el-form-item label="厂商">
           <el-select v-model="modelForm.provider" style="width: 100%"><el-option label="OpenAI" :value="1" /><el-option label="Anthropic" :value="2" /></el-select>
         </el-form-item>
-        <el-form-item label="模型标识" class="form-span-2"><el-input v-model="modelForm.modelName" placeholder="deepseek-flash / claude-sonnet-4" /></el-form-item>
+        <el-form-item label="模型名称" class="form-span-2"><el-input v-model="modelForm.modelName" placeholder="deepseek-flash / claude-sonnet-4" /></el-form-item>
         <el-form-item label="Base URL" class="form-span-2"><el-input v-model="modelForm.url" /></el-form-item>
         <el-form-item label="API Key" class="form-span-2"><el-input v-model="modelForm.apiKey" show-password placeholder="请输入 API Key" /></el-form-item>
+        <el-alert
+          v-if="modelTestResult"
+          class="form-span-2 model-test-result"
+          :title="modelTestResult.message"
+          :type="modelTestResult.success ? 'success' : 'warning'"
+          :closable="false"
+          show-icon
+        />
       </el-form>
-      <span slot="footer">
-        <el-button @click="modelEditorVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingModel" @click="saveModel">保存模型</el-button>
+      <span slot="footer" class="model-editor-footer">
+        <el-button :loading="testingModelForm" :disabled="savingModel" @click="testModelForm">测试连通性</el-button>
+        <span class="model-editor-footer-spacer"></span>
+        <el-button :disabled="testingModelForm" @click="modelEditorVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingModel" :disabled="testingModelForm" @click="saveModel">保存模型</el-button>
       </span>
     </el-dialog>
   </el-dialog>
@@ -145,20 +143,20 @@ export default {
   props: {
     visible: { type: Boolean, default: false },
     aid: { type: String, default: '' },
-    agents: { type: Array, default: () => [] },
-    selectedModelId: { type: [Number, String], default: null }
+    agents: { type: Array, default: () => [] }
   },
   data: () => ({
     tab: 'models',
     loading: false,
     saving: false,
     savingModel: false,
+    testingModelForm: false,
+    modelTestResult: null,
     models: [],
     agentForm: emptyAgent(),
     initError: '',
     modelEditorVisible: false,
-    modelForm: emptyModel(),
-    activeModelId: null
+    modelForm: emptyModel()
   }),
   computed: {
     selectableModels() {
@@ -172,12 +170,6 @@ export default {
     },
     aid() {
       if (this.visible) this.load()
-    },
-    selectedModelId: {
-      immediate: true,
-      handler(value) {
-        this.activeModelId = value
-      }
     }
   },
   methods: {
@@ -242,11 +234,45 @@ export default {
     },
     newModel() {
       this.modelForm = emptyModel()
+      this.modelTestResult = null
       this.modelEditorVisible = true
     },
     editModel(model) {
       this.modelForm = { ...model }
+      this.modelTestResult = null
       this.modelEditorVisible = true
+    },
+    async testModelForm() {
+      if (!this.modelForm.url || !this.modelForm.modelName) {
+        this.$message.warning('请先填写 Base URL 和模型标识')
+        return
+      }
+      this.testingModelForm = true
+      this.modelTestResult = null
+      const payload = {
+        modelId: this.modelForm.id,
+        provider: this.modelForm.provider,
+        modelType: this.modelForm.modelType,
+        modelName: this.modelForm.modelName,
+        url: this.modelForm.url
+      }
+      if (this.modelForm.apiKey) payload.apiKey = this.modelForm.apiKey
+      try {
+        const result = await testConnectivity(payload)
+        const success = Boolean(result && result.success)
+        const detail = (result && result.message) || '服务端未返回详细信息'
+        this.modelTestResult = {
+          success,
+          message: (success ? '连通性测试通过：' : '连通性测试未通过：') + detail
+        }
+      } catch (error) {
+        this.modelTestResult = {
+          success: false,
+          message: '连通性测试未通过：' + (error.message || '请检查模型配置后重试')
+        }
+      } finally {
+        this.testingModelForm = false
+      }
     },
     async saveModel() {
       this.savingModel = true
@@ -454,6 +480,20 @@ export default {
 
 .compact-editor-form .form-span-2 {
   grid-column: 1 / -1;
+}
+
+.model-test-result {
+  margin-bottom: 12px;
+}
+
+.model-editor-footer {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.model-editor-footer-spacer {
+  flex: 1;
 }
 
 ::v-deep .compact-editor-form .el-form-item {

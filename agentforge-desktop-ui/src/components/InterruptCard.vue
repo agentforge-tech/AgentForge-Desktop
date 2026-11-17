@@ -298,8 +298,8 @@ export default {
 .is-compact .ask-user-dots button { width: 6px; height: 6px; }
 .is-compact .ask-user-dots button.active { width: 16px; }
 .is-compact .interrupt-question { gap: 7px; margin-bottom: 8px; }
-.is-compact .is-compact .is-compact @media (max-width: 520px) {
-  .is-compact   .is-compact .interrupt-question .el-checkbox-group { grid-template-columns: 1fr; }
+@media (max-width: 520px) {
+  .is-compact .interrupt-question .el-checkbox-group { grid-template-columns: 1fr; }
 }
 .is-compact .ask-user-navigation { padding-top: 0; }
 .is-compact .ask-user-navigation .el-button { padding: 6px 10px; font-size: 11px; }

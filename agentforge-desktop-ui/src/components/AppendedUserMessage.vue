@@ -17,9 +17,9 @@ export default {
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  width: 35%;
+  width: 100%;
   max-width: 100%;
-  min-width: 280px;
+  min-width: 0;
   box-sizing: border-box;
   margin: 4px 0 10px;
   padding: 7px 10px;
@@ -33,6 +33,5 @@ export default {
 .appended-user-message__mark { flex-shrink: 0; color: #7891b2; font-size: 15px; line-height: 1.45; }
 .appended-user-message__content { min-width: 0; flex: 1; color: #606266; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 @keyframes appended-message-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
-@media (max-width: 768px) { .appended-user-message { width: 70%; min-width: 250px; max-width: 350px; } }
-@media (max-width: 480px) { .appended-user-message { width: 85%; min-width: 220px; max-width: 300px; } }
+@media (max-width: 768px) { .appended-user-message { width: 100%; min-width: 0; } }
 </style>

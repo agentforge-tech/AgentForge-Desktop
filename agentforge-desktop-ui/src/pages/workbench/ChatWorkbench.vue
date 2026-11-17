@@ -7,57 +7,118 @@
             <img :src="currentAgent && currentAgent.avatar ? currentAgent.avatar : '/logo.png'" :alt="currentAgent ? currentAgent.name : 'AgentForge'" />
           </div>
           <div class="current-agent-info">
-            <b>{{ currentAgent ? currentAgent.name : '未选择 Agent' }}</b>
+            <b>{{ currentAgent ? currentAgent.name : 'AgentForge Desktop' }}</b>
           </div>
         </div>
-        <el-button size="small" icon="el-icon-plus" class="new-chat-btn" @click="newChat">新建对话</el-button>
+        <el-button size="small" icon="el-icon-circle-plus-outline" class="new-chat-btn" @click="newChat">新建任务</el-button>
       </div>
 
-      <div class="session-scroll">
-        <div v-if="topSessions.length" class="session-section">
-          <div class="section-title">置顶会话</div>
-          <div
-            v-for="item in topSessions"
-            :key="'top-' + item.id"
-            class="session-item"
-            :class="{ active: item.id === activeSessionId }"
-            @click="openSession(item)"
-          >
-            <div class="session-body">
-              <span class="session-text" :title="item.title">{{ item.title }}</span>
-              <span class="session-time">{{ formatSessionTime(item) }}</span>
+      <div class="session-scroll" :class="{ 'has-pinned-panel': pinnedTaskSessions.length }">
+        <section v-if="pinnedTaskSessions.length" class="session-list-panel pinned-task-panel" :class="{ 'is-collapsed': !pinnedTasksOpen }">
+          <button type="button" class="task-group-title pinned-task-title" @click="pinnedTasksOpen = !pinnedTasksOpen">
+            <span>置顶任务 ({{ pinnedTaskSessions.length }})</span>
+            <i :class="pinnedTasksOpen ? 'el-icon-arrow-down' : 'el-icon-arrow-right'"></i>
+          </button>
+          <div v-show="pinnedTasksOpen" class="session-panel-body">
+            <div v-for="item in pinnedTaskSessions" :key="'pinned-task-' + item.id" class="session-item" :class="{ active: item.id === activeSessionId }" @click="openSession(item)">
+              <div class="session-body">
+                <span class="session-text" :title="item.title">{{ item.title }}</span>
+                <span class="session-time">{{ formatSessionTime(item) }}</span>
+              </div>
+              <el-dropdown class="session-more" trigger="click" placement="bottom-start" @command="handleSessionCommand($event, item)" @click.native.stop>
+                <span class="session-more-trigger" title="更多操作"><i class="el-icon-more"></i></span>
+                <el-dropdown-menu slot="dropdown" class="session-action-menu">
+                  <el-dropdown-item command="open" icon="el-icon-folder-opened">打开文件夹</el-dropdown-item>
+                  <el-dropdown-item command="rename" icon="el-icon-edit">重命名</el-dropdown-item>
+                  <el-dropdown-item command="delete" icon="el-icon-delete" divided>删除会话</el-dropdown-item>
+                </el-dropdown-menu>
+              </el-dropdown>
+              <button type="button" class="session-pin-action" title="取消置顶" @click.stop="toggleTop(item, false)"><i class="el-icon-bottom"></i></button>
             </div>
-            <span class="session-actions">
-              <i class="el-icon-edit" title="重命名" @click.stop="renameSession(item)"></i>
-              <i class="el-icon-bottom" title="取消置顶" @click.stop="toggleTop(item, false)"></i>
-              <i class="el-icon-delete" title="删除" @click.stop="removeSession(item)"></i>
-            </span>
           </div>
-        </div>
+        </section>
 
-        <div class="session-section">
-          <div class="section-title">历史会话</div>
-          <div
-            v-for="item in normalSessions"
-            :key="item.id"
-            class="session-item"
-            :class="{ active: item.id === activeSessionId }"
-            @click="openSession(item)"
-          >
-            <div class="session-body">
-              <span class="session-text" :title="item.title">{{ item.title }}</span>
-              <span class="session-time">{{ formatSessionTime(item) }}</span>
+        <section class="session-list-panel normal-task-panel">
+          <button type="button" class="task-group-title normal-task-title" :class="{ 'has-pinned': pinnedTaskSessions.length }" @click="normalTasksOpen = !normalTasksOpen">
+            <span>任务 ({{ normalTaskSessions.length }})</span>
+            <i :class="normalTasksOpen ? 'el-icon-arrow-down' : 'el-icon-arrow-right'"></i>
+          </button>
+          <div v-show="normalTasksOpen" class="session-panel-body">
+            <template v-for="group in normalTaskGroups">
+              <div :key="'normal-task-group-' + group.key" class="session-date-group-title">{{ group.label }}</div>
+              <div v-for="item in group.items" :key="'normal-task-' + item.id" class="session-item" :class="{ active: item.id === activeSessionId }" @click="openSession(item)">
+              <div class="session-body">
+                <span class="session-text" :title="item.title">{{ item.title }}</span>
+                <span class="session-time">{{ formatSessionTime(item) }}</span>
+              </div>
+              <el-dropdown class="session-more" trigger="click" placement="bottom-start" @command="handleSessionCommand($event, item)" @click.native.stop>
+                <span class="session-more-trigger" title="更多操作"><i class="el-icon-more"></i></span>
+                <el-dropdown-menu slot="dropdown" class="session-action-menu">
+                  <el-dropdown-item command="open" icon="el-icon-folder-opened">打开文件夹</el-dropdown-item>
+                  <el-dropdown-item command="rename" icon="el-icon-edit">重命名</el-dropdown-item>
+                  <el-dropdown-item command="delete" icon="el-icon-delete" divided>删除会话</el-dropdown-item>
+                </el-dropdown-menu>
+              </el-dropdown>
+              <button type="button" class="session-pin-action" title="置顶" @click.stop="toggleTop(item, true)"><i class="el-icon-top"></i></button>
+              </div>
+            </template>
+            <div v-if="!normalTaskSessions.length" class="session-empty">{{ sessionsLoading ? '加载中…' : '暂无任务' }}</div>
+          </div>
+        </section>
+
+        <section class="session-list-panel workspace-session-section" :class="{ 'is-collapsed': !workspaceOpen }">
+          <button type="button" class="task-group-title workspace-panel-title" @click="workspaceOpen = !workspaceOpen">
+            <span>工作空间 ({{ workspaceGroups.length }})</span>
+            <i :class="workspaceOpen ? 'el-icon-arrow-down' : 'el-icon-arrow-right'"></i>
+          </button>
+          <div v-show="workspaceOpen" class="session-panel-body">
+          <div v-for="group in workspaceGroups" :key="'workspace-' + group.id" class="workspace-tree-group">
+            <div class="workspace-tree-head" role="button" tabindex="0" @click="toggleWorkspaceGroup(group.id)" @keydown.enter="toggleWorkspaceGroup(group.id)">
+              <i class="el-icon-folder"></i>
+              <span class="workspace-tree-name" :title="group.folderPath">{{ group.name }}</span>
+              <el-dropdown class="workspace-more" trigger="click" placement="bottom-start" @command="handleWorkspaceCommand($event, group)" @click.native.stop>
+                <span class="workspace-more-trigger" title="更多操作"><i class="el-icon-more"></i></span>
+                <el-dropdown-menu slot="dropdown" class="workspace-action-menu">
+                  <el-dropdown-item command="open" icon="el-icon-folder-opened">打开文件夹</el-dropdown-item>
+                  <el-dropdown-item command="rename" icon="el-icon-edit">重命名</el-dropdown-item>
+                  <el-dropdown-item command="delete" icon="el-icon-delete" divided>删除空间</el-dropdown-item>
+                </el-dropdown-menu>
+              </el-dropdown>
+              <i :class="expandedWorkspaceIds.includes(group.id) ? 'el-icon-arrow-down' : 'el-icon-arrow-right'"></i>
             </div>
-            <span class="session-actions">
-              <i class="el-icon-edit" title="重命名" @click.stop="renameSession(item)"></i>
-              <i class="el-icon-top" title="置顶" @click.stop="toggleTop(item, true)"></i>
-              <i class="el-icon-delete" title="删除" @click.stop="removeSession(item)"></i>
-            </span>
+            <div v-show="expandedWorkspaceIds.includes(group.id)" class="workspace-tree-sessions">
+              <div
+                v-for="item in group.sessions"
+                :key="item.id"
+                class="session-item workspace-session-item"
+                :class="{ active: item.id === activeSessionId }"
+                @click="openSession(item)"
+              >
+                <div class="session-body">
+                  <span class="session-text" :title="item.title">{{ item.title }}</span>
+                  <span class="session-time">{{ formatSessionTime(item) }}</span>
+                </div>
+                <el-dropdown class="session-more" trigger="click" placement="bottom-start" @command="handleSessionCommand($event, item)" @click.native.stop>
+                  <span class="session-more-trigger" title="更多操作"><i class="el-icon-more"></i></span>
+                  <el-dropdown-menu slot="dropdown" class="session-action-menu">
+                    <el-dropdown-item command="open" icon="el-icon-folder-opened">打开文件夹</el-dropdown-item>
+                    <el-dropdown-item command="rename" icon="el-icon-edit">重命名</el-dropdown-item>
+                    <el-dropdown-item command="delete" icon="el-icon-delete" divided>删除会话</el-dropdown-item>
+                  </el-dropdown-menu>
+                </el-dropdown>
+                <button
+                  type="button"
+                  class="session-pin-action"
+                  :title="item.topOrder > 0 ? '取消置顶' : '置顶'"
+                  @click.stop="toggleTop(item, !(item.topOrder > 0))"
+                ><i :class="item.topOrder > 0 ? 'el-icon-bottom' : 'el-icon-top'"></i></button>
+              </div>
+              <div v-if="!group.sessions.length" class="workspace-tree-empty">暂无会话</div>
+            </div>
           </div>
-          <div v-if="!topSessions.length && !normalSessions.length" class="session-empty">
-            {{ sessionsLoading ? '加载中…' : '暂无历史会话' }}
+          <div v-if="!workspaceGroups.length" class="session-empty">暂无工作空间</div>
           </div>
-        </div>
+        </section>
       </div>
 
       <div class="session-footer">
@@ -157,11 +218,46 @@
               @keydown.enter="onEnter"
             ></textarea>
             <div class="composer-toolbar">
-              <button class="workspace-picker" type="button" :title="projectPath || '使用默认工作空间'" @click="chooseWorkspace">
-                <i class="el-icon-folder"></i>
-                <span>{{ projectPath ? projectName : '选择工作空间' }}</span>
-                <i class="el-icon-arrow-down"></i>
-              </button>
+              <WorkspacePicker
+                :workspaces="workspaces"
+                :selected-id="selectedWorkspaceId"
+                :locked="!!sessionId"
+                @select="selectWorkspace"
+                @clear="clearWorkspace"
+                @created="onWorkspaceCreated"
+              />
+              <div class="composer-model-control">
+                <img v-if="selectedModelLogo" class="composer-selected-model-logo" :src="selectedModelLogo" :alt="selectedModel ? selectedModel.name : '模型'" />
+                <i v-else class="el-icon-cpu composer-selected-model-fallback"></i>
+                <el-select
+                  v-model="selectedModelId"
+                  class="composer-model-select"
+                  size="mini"
+                  popper-class="composer-model-popper"
+                  :disabled="running || !!activeInterrupt"
+                  placeholder="选择模型"
+                  title="当前对话模型"
+                >
+                <el-option
+                  v-for="model in availableModels"
+                  :key="model.id"
+                  :label="model.modelName || model.name"
+                  :value="model.id"
+                >
+                  <div class="composer-model-option">
+                    <span class="composer-model-option-icon">
+                      <img v-if="modelLogo(model)" :src="modelLogo(model)" :alt="model.name" />
+                      <i v-else class="el-icon-cpu"></i>
+                    </span>
+                    <span class="composer-model-option-text">
+                      <b>{{ model.name || model.modelName }}</b>
+                      <small v-if="model.modelName && model.modelName !== model.name">{{ model.modelName }}</small>
+                    </span>
+                    <i v-if="model.id === selectedModelId" class="el-icon-check composer-model-option-check"></i>
+                  </div>
+                </el-option>
+                </el-select>
+              </div>
             </div>
             <button
               class="send-btn"
@@ -185,10 +281,8 @@
       :visible="settingsOpen"
       :aid="selectedAid"
       :agents="agents"
-      :selected-model-id="selectedModelId"
       @close="settingsOpen = false"
       @select-agent="selectAgent"
-      @select-model="selectedModelId = $event"
       @saved="onSettingsSaved"
     />
   </div>
@@ -198,6 +292,7 @@
 import AgentMessageContent from '../../components/AgentMessageContent.vue'
 import ConfigDrawer from '../../components/ConfigDrawer.vue'
 import InterruptCard from '../../components/InterruptCard.vue'
+import WorkspacePicker from '../../components/WorkspacePicker.vue'
 import chatAutoScroll from '../../utils/chatAutoScroll'
 import { postSse } from '../../utils/sse'
 import { fetchAgents, upsertAgent } from '../../api/agent'
@@ -224,13 +319,21 @@ import {
 import { replaySessionMessages } from '../../utils/sessionReplay'
 import { RENDER_MODES } from '../../modes'
 import { request } from '../../api/client'
+import { deleteWorkspace, fetchWorkspaces, renameWorkspace } from '../../api/workspace'
 
 const COMPOSER_MAX_HEIGHT = 140
 const MODE_KEY = 'agentforge.render.mode'
 
+function parseSessionDate(item) {
+  const raw = item.lastMessageAt || item.modifyTime || item.createTime
+  if (!raw) return null
+  const date = new Date(String(raw).replace(' ', 'T'))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 export default {
   name: 'ChatWorkbench',
-  components: { AgentMessageContent, ConfigDrawer, InterruptCard },
+  components: { AgentMessageContent, ConfigDrawer, InterruptCard, WorkspacePicker },
   mixins: [chatAutoScroll],
   data: () => ({
     agents: [],
@@ -255,7 +358,12 @@ export default {
     settingsOpen: false,
     backendConnected: false,
     workspace: '',
-    projectPath: '',
+    workspaces: [],
+    selectedWorkspaceId: null,
+    expandedWorkspaceIds: [],
+    workspaceOpen: true,
+    pinnedTasksOpen: true,
+    normalTasksOpen: true,
     pendingAppends: [],
     deferredAppends: []
   }),
@@ -269,13 +377,44 @@ export default {
       if (!ids.length) return this.models
       return this.models.filter((model) => ids.includes(model.id))
     },
+    selectedModel() {
+      return this.availableModels.find((model) => model.id === this.selectedModelId) || null
+    },
+    selectedModelLogo() {
+      return this.modelLogo(this.selectedModel)
+    },
     canChat() {
       return Boolean(this.selectedAid && this.currentAgent && this.availableModels.length)
     },
-    projectName() {
-      if (!this.projectPath) return ''
-      const parts = this.projectPath.replace(/[\\/]+$/, '').split(/[\\/]/)
-      return parts[parts.length - 1] || this.projectPath
+    pinnedTaskSessions() {
+      return this.topSessions.filter((item) => item.workspaceId == null)
+    },
+    normalTaskSessions() {
+      return this.normalSessions.filter((item) => item.workspaceId == null)
+    },
+    normalTaskGroups() {
+      const now = new Date()
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+      const yesterdayStart = todayStart - 24 * 60 * 60 * 1000
+      const groups = [
+        { key: 'today', label: '今日', items: [] },
+        { key: 'yesterday', label: '昨日', items: [] },
+        { key: 'earlier', label: '更早', items: [] }
+      ]
+      this.normalTaskSessions.forEach((item) => {
+        const date = parseSessionDate(item)
+        const time = date ? date.getTime() : 0
+        if (time >= todayStart) groups[0].items.push(item)
+        else if (time >= yesterdayStart) groups[1].items.push(item)
+        else groups[2].items.push(item)
+      })
+      return groups.filter((group) => group.items.length)
+    },
+    workspaceGroups() {
+      return this.workspaces.map((workspace) => ({
+        ...workspace,
+        sessions: [...this.topSessions, ...this.normalSessions].filter((item) => item.workspaceId === workspace.id)
+      }))
     },
     composerPlaceholder() {
       if (!this.canChat) return '请先创建 Agent'
@@ -326,6 +465,10 @@ export default {
     if (this.controller) this.controller.abort()
   },
   methods: {
+    modelLogo(model) {
+      const identity = [model && model.name, model && model.modelName].filter(Boolean).join(' ').toLowerCase()
+      return identity.includes('deepseek') ? '/model-logos/deepseek.svg' : ''
+    },
     async bootstrap() {
       try {
         let list = (await fetchAgents()) || []
@@ -377,7 +520,7 @@ export default {
       this.currentAgent = agent
       this.models = (await fetchModels()) || []
       this.refreshModelSelection()
-      await this.loadSessions()
+      await Promise.all([this.loadSessions(), this.loadWorkspaces()])
     },
     refreshModelSelection() {
       const ids = this.availableModels.map((item) => item.id)
@@ -407,12 +550,22 @@ export default {
         this.sessionsLoading = false
       }
     },
+    async loadWorkspaces() {
+      try {
+        this.workspaces = (await fetchWorkspaces()) || []
+        const ids = this.workspaces.map((item) => item.id)
+        this.expandedWorkspaceIds = this.expandedWorkspaceIds.filter((id) => ids.includes(id))
+      } catch (error) {
+        this.$message.error(error.message || '工作空间加载失败')
+      }
+    },
     async openSession(item) {
       if (this.running || !item) return
       this.activeSessionId = item.id
       this.sessionId = item.sessionId
       this.sessionTitle = item.title
       this.selectedAidSessionModel = item.modelId
+      this.selectedWorkspaceId = item.workspaceId == null ? null : item.workspaceId
       this.refreshModelSelection()
       try {
         const records = await fetchSessionMessages(item.id)
@@ -435,7 +588,7 @@ export default {
       this.sessionId = ''
       this.sessionTitle = ''
       this.selectedAidSessionModel = null
-      this.projectPath = ''
+      this.selectedWorkspaceId = null
       this.messages = []
       this.draft = ''
       this.pendingAppends = []
@@ -464,6 +617,30 @@ export default {
         this.$message.success('已重命名')
       } catch (error) {
         if (error !== 'cancel' && error !== 'close') this.$message.error(error.message || '重命名失败')
+      }
+    },
+    async handleSessionCommand(command, item) {
+      if (command === 'rename') {
+        await this.renameSession(item)
+        return
+      }
+      if (command === 'open') {
+        await this.openSessionFolder(item)
+        return
+      }
+      if (command === 'delete') await this.removeSession(item)
+    },
+    async openSessionFolder(item) {
+      const root = String(this.workspace || '').replace(/[\\/]$/, '')
+      const boundWorkspace = item.workspaceId == null
+        ? null
+        : this.workspaces.find((workspace) => workspace.id === item.workspaceId)
+      const target = item.workspacePath || (boundWorkspace && boundWorkspace.folderPath) || (root ? `${root}/workspace` : '')
+      if (window.electronAPI && window.electronAPI.openPath) {
+        const error = await window.electronAPI.openPath(target)
+        if (error) this.$message.error(error)
+      } else {
+        this.$message.info(target || '浏览器模式不支持打开目录')
       }
     },
     async toggleTop(item, isTop) {
@@ -568,7 +745,8 @@ export default {
             sessionId: this.sessionId,
             message: text,
             modelId: this.selectedModelId,
-            projectPath: this.projectPath || null
+            workspaceId: this.selectedWorkspaceId,
+            projectPath: null
           },
           {
             signal: this.controller.signal,
@@ -927,14 +1105,62 @@ export default {
         this.$message.info(this.workspace || '浏览器模式不支持打开目录')
       }
     },
-    async chooseWorkspace() {
-      if (!window.electronAPI || !window.electronAPI.chooseDirectory) {
-        this.$message.info('浏览器模式不支持选择本地目录')
+    selectWorkspace(item) {
+      if (this.sessionId || !item) return
+      this.selectedWorkspaceId = item.id
+    },
+    clearWorkspace() {
+      if (this.sessionId) return
+      this.selectedWorkspaceId = null
+    },
+    onWorkspaceCreated(item) {
+      if (!item) return
+      const index = this.workspaces.findIndex((workspace) => workspace.id === item.id)
+      if (index >= 0) this.$set(this.workspaces, index, item)
+      else this.workspaces.unshift(item)
+      this.selectWorkspace(item)
+      if (!this.expandedWorkspaceIds.includes(item.id)) this.expandedWorkspaceIds.push(item.id)
+    },
+    toggleWorkspaceGroup(id) {
+      const index = this.expandedWorkspaceIds.indexOf(id)
+      if (index >= 0) this.expandedWorkspaceIds.splice(index, 1)
+      else this.expandedWorkspaceIds.push(id)
+    },
+    async handleWorkspaceCommand(command, workspace) {
+      if (command === 'open') {
+        if (window.electronAPI && window.electronAPI.openPath) {
+          const error = await window.electronAPI.openPath(workspace.folderPath)
+          if (error) this.$message.error(error)
+        } else {
+          this.$message.info(workspace.folderPath || '浏览器模式不支持打开目录')
+        }
         return
       }
-      const selected = await window.electronAPI.chooseDirectory(this.projectPath || this.workspace)
-      if (!selected) return
-      this.projectPath = selected
+      if (command === 'rename') {
+        try {
+          const { value } = await this.$prompt('请输入新的工作空间名称', '重命名', {
+            inputValue: workspace.name,
+            inputValidator: (val) => (val && val.trim() ? true : '工作空间名称不能为空')
+          })
+          const updated = await renameWorkspace(workspace.id, value.trim())
+          Object.assign(workspace, updated)
+          this.$message.success('已重命名')
+        } catch (error) {
+          if (error !== 'cancel' && error !== 'close') this.$message.error(error.message || '重命名失败')
+        }
+        return
+      }
+      if (command === 'delete') {
+        try {
+          await this.$confirm('删除后工作空间内的会话将回到任务列表，本地文件不会被删除。是否继续？', '删除空间', { type: 'warning' })
+          await deleteWorkspace(workspace.id)
+          if (this.selectedWorkspaceId === workspace.id) this.selectedWorkspaceId = null
+          await Promise.all([this.loadWorkspaces(), this.loadSessions()])
+          this.$message.success('已删除')
+        } catch (error) {
+          if (error !== 'cancel' && error !== 'close') this.$message.error(error.message || '删除失败')
+        }
+      }
     }
   }
 }
