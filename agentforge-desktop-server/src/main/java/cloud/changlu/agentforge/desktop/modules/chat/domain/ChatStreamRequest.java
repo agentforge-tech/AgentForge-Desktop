@@ -6,6 +6,7 @@ public class ChatStreamRequest {
     private String message;
     private Long modelId;
     private String projectPath;
+    private Long workspaceId;
 
     public String getAid() { return aid; }
     public void setAid(String aid) { this.aid = aid; }
@@ -17,4 +18,6 @@ public class ChatStreamRequest {
     public void setModelId(Long modelId) { this.modelId = modelId; }
     public String getProjectPath() { return projectPath; }
     public void setProjectPath(String projectPath) { this.projectPath = projectPath; }
+    public Long getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
 }

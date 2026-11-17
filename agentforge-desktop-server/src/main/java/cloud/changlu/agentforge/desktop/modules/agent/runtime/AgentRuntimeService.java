@@ -1,6 +1,7 @@
 package cloud.changlu.agentforge.desktop.modules.agent.runtime;
 
 import cloud.changlu.agentforge.agent.domain.AgentRequest;
+import cloud.changlu.agentforge.agent.domain.AgentSettings;
 import cloud.changlu.agentforge.agent.extend.memory.window.MessageWindowChatMemoryProvider;
 import cloud.changlu.agentforge.agent.extend.middlewares.LoggingIAgentMiddleware;
 import cloud.changlu.agentforge.agent.extend.middlewares.append.UserMessageAppendMiddleware;
@@ -198,6 +199,8 @@ public class AgentRuntimeService {
                     .streamingChatModel(streamingChatModel)
                     .chatMemoryProvider(memoryProvider)
                     .permissionInterruptModule(DesktopPermissionModule.build(agentInterruptStore))
+                    .agentSettings(
+                            AgentSettings.builder().maxSteps(10000).aiCallRetry(3).build())
                     .middleware(new UserMessageAppendMiddleware(appendService, appendEventListener))
                     .middleware(new LoggingIAgentMiddleware())
                     .middleware(sessionLifecycleMiddleware)

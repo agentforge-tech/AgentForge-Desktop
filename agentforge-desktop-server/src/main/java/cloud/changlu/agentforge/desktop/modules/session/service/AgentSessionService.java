@@ -39,7 +39,8 @@ public class AgentSessionService {
 
     @Transactional(rollbackFor = Exception.class)
     public SessionInitResult initChat(
-            String aid, String sessionId, String message, Long modelId, Long userId) {
+            String aid, String sessionId, String message, Long modelId, Long userId,
+            Long workspaceId, String workspacePath) {
         if (aid == null || aid.trim().isEmpty()) {
             throw new IllegalArgumentException("aid 不能为空");
         }
@@ -63,6 +64,8 @@ public class AgentSessionService {
             session.setTitle(SessionTitleUtil.resolve(trimmedMessage));
             session.setStatus(SessionStatusEnum.IDLE.getCode());
             session.setModelId(modelId);
+            session.setWorkspaceId(workspaceId);
+            session.setWorkspacePath(workspacePath);
             session.setPinOrder(0);
             session.setCreateUserId(user);
             session.setIsDeleted(0);
@@ -71,6 +74,12 @@ public class AgentSessionService {
             sessionMapper.insert(session);
         } else {
             sessionMapper.touch(session.getId(), now);
+            if ((session.getWorkspacePath() == null || session.getWorkspacePath().trim().isEmpty())
+                    && workspacePath != null && !workspacePath.trim().isEmpty()) {
+                sessionMapper.updateWorkspace(session.getId(), workspaceId, workspacePath, now);
+                session.setWorkspaceId(workspaceId);
+                session.setWorkspacePath(workspacePath);
+            }
             if (modelId != null) {
                 sessionMapper.updateModelId(session.getId(), modelId, now);
                 session.setModelId(modelId);
@@ -197,6 +206,8 @@ public class AgentSessionService {
         vo.setTitle(session.getTitle());
         vo.setStatus(session.getStatus());
         vo.setModelId(session.getModelId());
+        vo.setWorkspaceId(session.getWorkspaceId());
+        vo.setWorkspacePath(session.getWorkspacePath());
         vo.setTopOrder(session.getPinOrder());
         vo.setCreateTime(session.getCreateTime());
         vo.setModifyTime(session.getModifyTime());

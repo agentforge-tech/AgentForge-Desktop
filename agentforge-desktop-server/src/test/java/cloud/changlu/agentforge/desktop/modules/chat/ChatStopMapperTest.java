@@ -101,7 +101,7 @@ class ChatStopMapperTest {
     private AgentSessionService.SessionInitResult initChat() {
         AgentSessionService.SessionInitResult init =
                 sessionService.initChat(
-                        "agt_default", "session-" + UUID.randomUUID(), "hello", 1L, 1L);
+                        "agt_default", "session-" + UUID.randomUUID(), "hello", 1L, 1L, null, null);
         assertNotNull(init.getAiMessageId());
         return init;
     }

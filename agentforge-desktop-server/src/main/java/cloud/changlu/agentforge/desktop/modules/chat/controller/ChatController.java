@@ -29,6 +29,7 @@ import cloud.changlu.agentforge.desktop.modules.session.enums.SessionStatusEnum;
 import cloud.changlu.agentforge.desktop.modules.session.enums.SessionStatusTransfer;
 import cloud.changlu.agentforge.desktop.modules.session.service.AgentSessionService;
 import cloud.changlu.agentforge.desktop.store.DesktopConfigStore;
+import cloud.changlu.agentforge.desktop.modules.workspace.service.WorkspaceBindingService;
 import cloud.changlu.agentforge.harness.agent.HarnessAgent;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -48,6 +49,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/chat")
@@ -62,6 +64,7 @@ public class ChatController {
     private final AgentSessionMessageMapper messageMapper;
     private final AgentSessionMapper sessionMapper;
     private final DesktopProperties desktopProperties;
+    private final WorkspaceBindingService workspaceBindingService;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Map<String, CancelHandle> activeStops =
             new ConcurrentHashMap<String, CancelHandle>();
@@ -75,7 +78,8 @@ public class ChatController {
             DesktopInterruptRuntimeRegistry interruptRegistry,
             AgentSessionMessageMapper messageMapper,
             AgentSessionMapper sessionMapper,
-            DesktopProperties desktopProperties) {
+            DesktopProperties desktopProperties,
+            WorkspaceBindingService workspaceBindingService) {
         this.configStore = configStore;
         this.sessionService = sessionService;
         this.runtimeService = runtimeService;
@@ -85,6 +89,7 @@ public class ChatController {
         this.messageMapper = messageMapper;
         this.sessionMapper = sessionMapper;
         this.desktopProperties = desktopProperties;
+        this.workspaceBindingService = workspaceBindingService;
     }
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -112,8 +117,15 @@ public class ChatController {
         final AgentSessionService.SessionInitResult init;
         final HarnessAgent runtime;
         try {
-            init = sessionService.initChat(aid, body.getSessionId(), message, modelId, 1L);
-            runtime = runtimeService.getOrCreate(agent, model, body.getProjectPath());
+            String resolvedSessionId = body.getSessionId() == null || body.getSessionId().trim().isEmpty()
+                    ? UUID.randomUUID().toString()
+                    : body.getSessionId().trim();
+            WorkspaceBindingService.Binding binding = workspaceBindingService.prepare(
+                    aid, resolvedSessionId, body.getWorkspaceId(), body.getProjectPath());
+            init = sessionService.initChat(
+                    aid, resolvedSessionId, message, modelId, 1L,
+                    binding.getWorkspaceId(), binding.getWorkspacePath());
+            runtime = runtimeService.getOrCreate(agent, model, binding.getWorkspacePath());
         } catch (RuntimeException e) {
             return notice(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }

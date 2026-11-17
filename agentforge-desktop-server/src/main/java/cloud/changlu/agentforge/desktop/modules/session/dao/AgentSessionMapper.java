@@ -22,8 +22,8 @@ public interface AgentSessionMapper {
     @Select("SELECT * FROM ai_agent_session WHERE session_id=#{sessionId} AND is_deleted=0 LIMIT 1")
     AgentSessionPojo selectBySessionId(@Param("sessionId") String sessionId);
 
-    @Insert("INSERT INTO ai_agent_session(session_id,aid,title,status,model_id,pin_order,create_user_id,is_deleted,create_time,modify_time)"
-            + " VALUES(#{sessionId},#{aid},#{title},#{status},#{modelId},#{pinOrder},#{createUserId},#{isDeleted},#{createTime},#{modifyTime})")
+    @Insert("INSERT INTO ai_agent_session(session_id,aid,title,status,model_id,workspace_id,workspace_path,pin_order,create_user_id,is_deleted,create_time,modify_time)"
+            + " VALUES(#{sessionId},#{aid},#{title},#{status},#{modelId},#{workspaceId},#{workspacePath},#{pinOrder},#{createUserId},#{isDeleted},#{createTime},#{modifyTime})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(AgentSessionPojo pojo);
 
@@ -32,6 +32,12 @@ public interface AgentSessionMapper {
 
     @Update("UPDATE ai_agent_session SET model_id=#{modelId}, modify_time=#{modifyTime} WHERE id=#{id}")
     int updateModelId(@Param("id") Long id, @Param("modelId") Long modelId, @Param("modifyTime") String modifyTime);
+
+    @Update("UPDATE ai_agent_session SET workspace_id=#{workspaceId}, workspace_path=#{workspacePath}, modify_time=#{modifyTime} WHERE id=#{id}")
+    int updateWorkspace(@Param("id") Long id, @Param("workspaceId") Long workspaceId, @Param("workspacePath") String workspacePath, @Param("modifyTime") String modifyTime);
+
+    @Update("UPDATE ai_agent_session SET workspace_id=NULL, modify_time=#{modifyTime} WHERE workspace_id=#{workspaceId} AND is_deleted=0")
+    int clearWorkspace(@Param("workspaceId") Long workspaceId, @Param("modifyTime") String modifyTime);
 
     @Select("SELECT * FROM ai_agent_session WHERE is_deleted=0 AND aid=#{aid} AND pin_order=0 ORDER BY modify_time DESC LIMIT #{limit}")
     List<AgentSessionPojo> selectNormalList(@Param("aid") String aid, @Param("limit") int limit);
