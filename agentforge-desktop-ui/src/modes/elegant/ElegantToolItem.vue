@@ -1,7 +1,11 @@
 <template>
   <div class="elegant-tool" :class="{ done: part.isFinish }">
     <div class="elegant-tool-head" @click="open = !open">
-      <svg v-if="part.isFinish" class="elegant-tool-icon elegant-tool-wrench" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <svg v-if="part.isFinish && isTerminalTool" class="elegant-tool-icon elegant-tool-terminal" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="2.5" stroke="currentColor" stroke-width="1.7" />
+        <path d="m7 9 3 3-3 3M12.5 15H17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <svg v-else-if="part.isFinish" class="elegant-tool-icon elegant-tool-wrench" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
           d="M14.7 6.3a4.1 4.1 0 0 0-5.1 5.1L3.5 17.5a2.1 2.1 0 0 0 3 3l6.1-6.1a4.1 4.1 0 0 0 5.1-5.1l-2.5 2.5-3-3 2.5-2.5Z"
           stroke="currentColor"
@@ -11,7 +15,7 @@
         />
       </svg>
       <i v-else class="elegant-tool-icon el-icon-loading"></i>
-      <span class="elegant-tool-name">{{ part.toolName }}</span>
+      <span v-if="!thought" class="elegant-tool-name">{{ part.toolName }}</span>
       <span v-if="thought" class="elegant-tool-thought" :title="thought">{{ thought }}</span>
       <span v-if="part.isFinish && durationText" class="elegant-tool-dur">（{{ durationText }}）</span>
       <i class="el-icon-arrow-down elegant-tool-arrow" :class="{ open }"></i>
@@ -29,7 +33,7 @@
 </template>
 
 <script>
-const THOUGHT_PARAMETER_NAME = '__thought'
+const THOUGHT_PARAMETER_NAMES = ['__thought', '_thought']
 
 export default {
   name: 'ElegantToolItem',
@@ -40,10 +44,15 @@ export default {
     return { open: false }
   },
   computed: {
+    isTerminalTool() {
+      const name = String(this.part.toolName || '').toLowerCase()
+      return ['bash', 'shell', 'terminal', 'exec_command', 'command'].some((keyword) => name.includes(keyword))
+    },
     thought() {
       const params = this.parseInputParams(this.part.inputParams)
       if (!params || typeof params !== 'object' || Array.isArray(params)) return ''
-      const thought = params[THOUGHT_PARAMETER_NAME]
+      const key = THOUGHT_PARAMETER_NAMES.find((name) => typeof params[name] === 'string' && params[name].trim())
+      const thought = key ? params[key] : ''
       return typeof thought === 'string' ? thought.trim() : ''
     },
     durationText() {
@@ -92,7 +101,9 @@ export default {
 }
 .elegant-tool-head:hover .elegant-tool-name { color: #53657d; }
 .elegant-tool-icon { font-size: 13px; color: #91a0b6; flex: 0 0 auto; }
-.elegant-tool-wrench { width: 15px; height: 15px; }
+.elegant-tool-wrench,
+.elegant-tool-terminal { width: 15px; height: 15px; }
+.elegant-tool-terminal { color: #7891b2; }
 .elegant-tool.done .elegant-tool-icon { color: #91a0b6; }
 .elegant-tool-name { flex: 0 0 auto; font-weight: 400; color: #718096; }
 .elegant-tool-thought {
