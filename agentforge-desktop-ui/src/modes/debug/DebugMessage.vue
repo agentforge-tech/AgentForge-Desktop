@@ -141,7 +141,7 @@ export default {
 .process-head:hover { background: transparent; }
 .process-title { font-weight: 600; color: #3b6fb6; }
 .process-meta { color: #98a2b3; font-size: 11.5px; margin-left: auto; }
-.process-body { padding: 4px 0 10px; }
+.process-body { padding: 2px 0 8px; }
 
 .answer { margin: 2px 0 8px; padding-left: 0; }
 

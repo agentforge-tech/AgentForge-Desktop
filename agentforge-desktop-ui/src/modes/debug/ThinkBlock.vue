@@ -70,17 +70,21 @@ export default {
 
 <style scoped>
 .think-block {
+  box-sizing: border-box;
   border: 1px solid #eef0f4;
-  border-radius: 8px;
+  border-radius: 7px;
   background: #fbfcfe;
-  margin: 6px 0;
+  margin: 4px 0;
+  padding: 0;
   overflow: hidden;
 }
 .think-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 4px 10px;
   cursor: pointer;
   font-size: 12.5px;
   color: #5a6472;

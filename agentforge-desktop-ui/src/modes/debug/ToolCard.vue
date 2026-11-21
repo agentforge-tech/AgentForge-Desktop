@@ -64,10 +64,12 @@ export default {
 
 <style scoped>
 .tool-card {
+  box-sizing: border-box;
   border: 1px solid #e6e9ef;
-  border-radius: 8px;
+  border-radius: 7px;
   background: #fff;
-  margin: 6px 0;
+  margin: 4px 0;
+  padding: 0;
   overflow: hidden;
 }
 .tool-card.done { border-color: #d8efdf; }
@@ -75,7 +77,9 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 4px 10px;
   cursor: pointer;
   font-size: 12.5px;
   user-select: none;

@@ -115,7 +115,12 @@ public class AgentSessionService {
         messageMapper.insert(aiMessage);
 
         return new SessionInitResult(
-                resolvedSessionId, session.getId(), aiMessage.getId(), aiSeq, session.getTitle());
+                resolvedSessionId,
+                session.getId(),
+                userMessage.getId(),
+                aiMessage.getId(),
+                aiSeq,
+                session.getTitle());
     }
 
     public List<SessionVo> listNormal(String aid, Integer limit) {
@@ -243,14 +248,21 @@ public class AgentSessionService {
     public static class SessionInitResult {
         private final String sessionId;
         private final Long sessionPk;
+        private final Long userMessageId;
         private final Long aiMessageId;
         private final Integer aiSeqNum;
         private final String title;
 
         public SessionInitResult(
-                String sessionId, Long sessionPk, Long aiMessageId, Integer aiSeqNum, String title) {
+                String sessionId,
+                Long sessionPk,
+                Long userMessageId,
+                Long aiMessageId,
+                Integer aiSeqNum,
+                String title) {
             this.sessionId = sessionId;
             this.sessionPk = sessionPk;
+            this.userMessageId = userMessageId;
             this.aiMessageId = aiMessageId;
             this.aiSeqNum = aiSeqNum;
             this.title = title;
@@ -258,6 +270,7 @@ public class AgentSessionService {
 
         public String getSessionId() { return sessionId; }
         public Long getSessionPk() { return sessionPk; }
+        public Long getUserMessageId() { return userMessageId; }
         public Long getAiMessageId() { return aiMessageId; }
         public Integer getAiSeqNum() { return aiSeqNum; }
         public String getTitle() { return title; }

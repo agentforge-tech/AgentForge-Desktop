@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -15,6 +16,26 @@ export function findMaven() {
          '/Applications/IntelliJ IDEA CE.app/Contents/plugins/maven/lib/maven3/bin/mvn'])
   ]
   return findCommand(candidates) || ''
+}
+
+export function isolatedSettings(repo) {
+  const file = path.join(os.tmpdir(), 'agentforge-desktop-maven-settings.xml')
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+    <localRepository>${repo}</localRepository>
+    <mirrors>
+        <mirror>
+            <id>central</id>
+            <mirrorOf>*</mirrorOf>
+            <url>https://repo.maven.apache.org/maven2</url>
+        </mirror>
+    </mirrors>
+</settings>
+`
+  fs.writeFileSync(file, xml, 'utf8')
+  return file
 }
 
 export function localRepository(mvn, env = process.env) {
@@ -36,5 +57,31 @@ export function coreArtifact(repo) {
     'agentforge-agent-core',
     '1.0.1-SNAPSHOT',
     'agentforge-agent-core-1.0.1-SNAPSHOT.jar'
+  )
+}
+
+export function requiredArtifacts(repo) {
+  const version = '1.0.1-SNAPSHOT'
+  const artifacts = [
+    ['agentforge-ai-bom', 'pom'],
+    ['agentforge-model-api', 'jar'],
+    ['agentforge-model-core', 'jar'],
+    ['agentforge-model-openai', 'jar'],
+    ['agentforge-model-anthropic', 'jar'],
+    ['agentforge-model-registry', 'jar'],
+    ['agentforge-agent-core', 'jar'],
+    ['agentforge-harness-agent', 'jar'],
+    ['agentforge-service-protocal', 'jar']
+  ]
+  return artifacts.map(([artifact, extension]) =>
+    path.join(
+      repo,
+      'cloud',
+      'changlu',
+      'agentforge',
+      artifact,
+      version,
+      `${artifact}-${version}.${extension}`
+    )
   )
 }

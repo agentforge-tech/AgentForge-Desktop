@@ -8,4 +8,4 @@ else throw new Error(`Unsupported platform: ${process.platform}-${process.arch}`
 
 console.log(`[AgentForge] detected package target: ${target}`)
 const result = spawnSync(process.execPath, [fromUi('scripts', 'package', 'package-desktop.mjs'), target], { stdio: 'inherit' })
-process.exit(result.status ?? 0)
+process.exit(result.status ?? 1)

@@ -15,6 +15,7 @@ public class DesktopProperties {
     private String configFile = "";
     private long cancelWaitTimeoutMs = 15000L;
     private long cancelPollIntervalMs = 200L;
+    private String chatEventStoreType = "sqlite";
 
     public Path rootPath() {
         return Paths.get(rootDir).toAbsolutePath().normalize();
@@ -37,6 +38,10 @@ public class DesktopProperties {
 
     public Path dbPath() {
         return rootPath().resolve("data").resolve("agentforge-desktop.db");
+    }
+
+    public Path globalSkillRoot() {
+        return rootPath().resolve("skills");
     }
 
     public String getRootDir() {
@@ -77,5 +82,13 @@ public class DesktopProperties {
 
     public void setCancelPollIntervalMs(long cancelPollIntervalMs) {
         this.cancelPollIntervalMs = cancelPollIntervalMs;
+    }
+
+    public String getChatEventStoreType() {
+        return chatEventStoreType;
+    }
+
+    public void setChatEventStoreType(String chatEventStoreType) {
+        this.chatEventStoreType = chatEventStoreType;
     }
 }

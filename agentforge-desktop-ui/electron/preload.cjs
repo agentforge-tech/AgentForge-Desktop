@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getLocalServerInfo() {
@@ -9,6 +9,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   chooseDirectory(currentPath) {
     return ipcRenderer.invoke('local-agent:choose-directory', currentPath)
+  },
+  chooseSkillZip(currentPath) {
+    return ipcRenderer.invoke('local-agent:choose-skill-zip', currentPath)
+  },
+  getPathForFile(file) {
+    return webUtils.getPathForFile(file)
   },
   onBackendExit(callback) {
     const listener = (_event, payload) => callback(payload)

@@ -41,6 +41,10 @@ public interface AgentSessionMessageMapper {
     int updateSnapshot(@Param("id") Long id, @Param("status") Integer status,
                        @Param("events") String events, @Param("modifyTime") String modifyTime);
 
+    @Update("UPDATE ai_agent_session_message SET events=#{events}, modify_time=#{modifyTime} WHERE id=#{id} AND is_deleted=0")
+    int updateEvents(@Param("id") Long id, @Param("events") String events,
+                     @Param("modifyTime") String modifyTime);
+
     @Update("UPDATE ai_agent_session_message SET status=#{status}, modify_time=#{modifyTime} WHERE id=#{id}")
     int updateStatus(@Param("id") Long id, @Param("status") Integer status,
                      @Param("modifyTime") String modifyTime);

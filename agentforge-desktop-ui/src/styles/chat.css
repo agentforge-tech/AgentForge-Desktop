@@ -22,7 +22,7 @@
   padding: 12px 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 2px;
   border-bottom: 1px solid #e5e7eb;
 }
 
@@ -53,6 +53,13 @@
   object-fit: cover;
 }
 
+.agent-brand-mark {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  color: #5a82b8;
+}
+
 .current-agent-info {
   display: flex;
   min-width: 0;
@@ -77,20 +84,57 @@
   font-size: 11px;
 }
 
-.new-chat-btn {
+.new-chat-btn,
+.skill-manager-btn {
   width: 100%;
+  margin-left: 0 !important;
   border: 0;
   border-radius: 9px;
-  background: #eef0f2;
+  background: transparent;
   color: #252a31;
   font-weight: 600;
   text-align: left;
 }
 
+.new-chat-btn {
+  margin-top: 6px !important;
+}
+
+.new-chat-btn > span,
+.skill-manager-btn > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sidebar-action-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: currentColor;
+}
+
 .new-chat-btn:hover,
-.new-chat-btn:focus {
+.new-chat-btn:focus,
+.new-chat-btn.active,
+.skill-manager-btn:hover,
+.skill-manager-btn:focus,
+.skill-manager-btn.active {
   background: #e5e7ea;
   color: #252a31;
+}
+
+.skill-manager-btn {
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #4b5563;
+  text-align: left;
 }
 
 .session-scroll {
@@ -105,22 +149,17 @@
 
 .session-list-panel {
   width: 100%;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   min-height: 0;
-  max-height: 50%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border-radius: 8px;
 }
 
-.session-scroll.has-pinned-panel .session-list-panel {
-  max-height: 33.333%;
-}
-
 .workspace-session-section {
-  order: 1;
-  flex-shrink: 0;
+  order: 3;
 }
 
 .workspace-session-section.is-collapsed {
@@ -128,27 +167,31 @@
 }
 
 .pinned-task-panel {
-  order: 2;
-  flex-shrink: 0;
+  order: 1;
+  flex: 0 0 auto;
+  max-height: 35%;
 }
 
 .pinned-task-panel.is-collapsed {
   flex: 0 0 auto;
-}
-
-.normal-task-panel {
-  order: 3;
-  flex: 1 1 0;
-  min-height: 36px;
   max-height: none;
 }
 
-.session-scroll.has-pinned-panel .normal-task-panel {
+.normal-task-panel {
+  order: 2;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 100%;
+}
+
+.normal-task-panel.is-collapsed {
+  flex: 0 0 auto;
+  min-height: 0;
   max-height: none;
 }
 
 .session-panel-body {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -170,7 +213,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 6px 9px 6px 15px;
   border-radius: 9px;
   cursor: pointer;
   transition: background 0.14s ease;
@@ -180,11 +223,11 @@
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 5px;
   padding: 7px 9px;
   color: #5f6672;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   border: 0;
   background: transparent;
@@ -203,7 +246,7 @@
 
 .normal-task-title {
   border-radius: 8px;
-  background: #f1f2f4;
+  background: transparent;
 }
 
 .normal-task-title.has-pinned {
@@ -211,9 +254,9 @@
 }
 
 .session-date-group-title {
-  padding: 9px 8px 4px;
+  padding: 7px 8px 3px;
   color: #8a919d;
-  font-size: 11px;
+  font-size: 10.5px;
   line-height: 1.4;
 }
 
@@ -230,21 +273,49 @@
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding-right: 48px;
 }
 
 .session-text {
-  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
   color: #111827;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.session-running-icon {
+  flex: 0 0 auto;
+  color: #4f7fbd;
+  font-size: 12px;
+  line-height: 1;
+  animation: session-running-rotate 1s linear infinite;
+}
+
+@keyframes session-running-rotate {
+  to { transform: rotate(360deg); }
+}
+
 .session-time {
-  font-size: 11px;
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  line-height: 1.25;
   color: #9ca3af;
+}
+
+.session-item:hover .session-time,
+.session-item:focus-within .session-time {
+  display: none;
 }
 
 .session-actions {
@@ -259,7 +330,11 @@
 }
 
 .session-more {
-  flex: 0 0 auto;
+  position: absolute;
+  z-index: 1;
+  right: 30px;
+  top: 50%;
+  transform: translateY(-50%);
   display: none;
   line-height: 1;
 }
@@ -285,9 +360,13 @@
 }
 
 .session-pin-action {
+  position: absolute;
+  z-index: 1;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 22px;
   height: 22px;
-  flex: 0 0 auto;
   display: none;
   align-items: center;
   justify-content: center;
@@ -360,6 +439,7 @@
 }
 
 .workspace-more {
+  margin-left: auto;
   flex: 0 0 auto;
   line-height: 1;
 }
@@ -388,7 +468,7 @@
 }
 
 .workspace-tree-name {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1020,6 +1100,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.send-icon {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .send-btn:disabled {

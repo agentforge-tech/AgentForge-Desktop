@@ -36,6 +36,11 @@ public final class DesktopAgentPrompt {
 
     /** Builds the Desktop-owned prompt. HarnessAgent appends its Runtime prompt afterwards. */
     public static String render(String configuredInstructions) {
+        return render(configuredInstructions, "");
+    }
+
+    /** Builds the Desktop-owned prompt and appends the skills visible to this workspace. */
+    public static String render(String configuredInstructions, String skillIndex) {
         StringBuilder prompt = new StringBuilder(DEFAULT);
         prompt.append("\n\n# 当前本机环境\n")
                 .append("- 当前日期：")
@@ -52,6 +57,14 @@ public final class DesktopAgentPrompt {
             prompt.append("\n\n# 用户自定义指令\n<user-instructions>\n")
                     .append(userInstructions)
                     .append("\n</user-instructions>");
+        }
+        if (skillIndex != null && !skillIndex.trim().isEmpty()) {
+            prompt.append("\n\n# Skills\n")
+                    .append("- desktop-skills 是当前对话可用的 Skill 索引。\n")
+                    .append("- 任务与某个 Skill 的 description 匹配时，先调用 skill，并将索引中的 path 原样传入。\n")
+                    .append("- 读取完整 SKILL.md 后再按其说明执行，不要凭索引描述猜测完整流程。\n")
+                    .append("- 只加载当前任务需要的 Skill。\n\n")
+                    .append(skillIndex.trim());
         }
         return prompt.toString();
     }

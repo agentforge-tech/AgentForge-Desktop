@@ -309,6 +309,15 @@ function registerIpc() {
     })
     return result.canceled || !result.filePaths.length ? null : result.filePaths[0]
   })
+  ipcMain.handle('local-agent:choose-skill-zip', async (_event, currentPath) => {
+    const result = await dialog.showOpenDialog({
+      title: '选择 Skill ZIP',
+      defaultPath: String(currentPath || backend.workspace || app.getPath('home')),
+      properties: ['openFile'],
+      filters: [{ name: 'Skill ZIP', extensions: ['zip'] }]
+    })
+    return result.canceled || !result.filePaths.length ? null : result.filePaths[0]
+  })
 }
 
 // 6、Electron 就绪后串联核心启动流程：启动后端 -> 注册 IPC -> 创建主窗口。

@@ -9,11 +9,14 @@ import cloud.changlu.agentforge.agent.extend.middlewares.append.event.UserMessag
 import cloud.changlu.agentforge.agent.extend.middlewares.append.service.IUserMessageAppendService;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptBatchResumeCommand;
 import cloud.changlu.agentforge.agent.governance.interrupt.spi.AgentInterruptStore;
+import cloud.changlu.agentforge.agent.stream.TokenStream;
 import cloud.changlu.agentforge.desktop.config.DesktopProperties;
 import cloud.changlu.agentforge.desktop.config.DesktopAgentPrompt;
 import cloud.changlu.agentforge.desktop.modules.chat.governance.DesktopPermissionModule;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreamingMiddleware;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.SessionLifecycleMiddleware;
+import cloud.changlu.agentforge.desktop.modules.skill.api.SkillLoader;
+import cloud.changlu.agentforge.desktop.modules.skill.tool.DesktopSkillTool;
 import cloud.changlu.agentforge.desktop.store.DesktopConfigStore;
 import cloud.changlu.agentforge.desktop.store.SqliteChatMemoryStore;
 import cloud.changlu.agentforge.harness.agent.HarnessAgent;
@@ -46,6 +49,7 @@ public class AgentRuntimeService {
     private final IUserMessageAppendService appendService;
     private final UserMessageAppendEventListener appendEventListener;
     private final AgentInterruptStore agentInterruptStore;
+    private final SkillLoader skillLoader;
 
     private final Map<String, HarnessAgent> cache = new ConcurrentHashMap<String, HarnessAgent>();
     private volatile long lastRevision = -1L;
@@ -58,7 +62,8 @@ public class AgentRuntimeService {
             SessionLifecycleMiddleware sessionLifecycleMiddleware,
             IUserMessageAppendService appendService,
             UserMessageAppendEventListener appendEventListener,
-            AgentInterruptStore agentInterruptStore) {
+            AgentInterruptStore agentInterruptStore,
+            SkillLoader skillLoader) {
         this.configStore = configStore;
         this.properties = properties;
         this.memoryStore = memoryStore;
@@ -67,6 +72,7 @@ public class AgentRuntimeService {
         this.appendService = appendService;
         this.appendEventListener = appendEventListener;
         this.agentInterruptStore = agentInterruptStore;
+        this.skillLoader = skillLoader;
     }
 
     public HarnessAgent getOrCreate(
@@ -104,8 +110,26 @@ public class AgentRuntimeService {
         agent.runStream(request).ignoreErrors().start();
     }
 
+    /** 后台任务使用的可观察启动入口，允许任务服务在 Agent 收口后清理注册表并生成快照。 */
+    public void stream(HarnessAgent agent, AgentRequest request, Runnable finished) {
+        TokenStream stream = agent.runStream(request)
+                .onCompleteResponse(response -> runQuietly(finished))
+                .onError(error -> runQuietly(finished))
+                .ignoreErrors();
+        stream.start();
+    }
+
     public void resumeInterruptStream(HarnessAgent agent, InterruptBatchResumeCommand command) {
         agent.resumeInterruptStream(command).ignoreErrors().start();
+    }
+
+    public void resumeInterruptStream(
+            HarnessAgent agent, InterruptBatchResumeCommand command, Runnable finished) {
+        TokenStream stream = agent.resumeInterruptStream(command)
+                .onCompleteResponse(response -> runQuietly(finished))
+                .onError(error -> runQuietly(finished))
+                .ignoreErrors();
+        stream.start();
     }
 
     public String createExecutionId(HarnessAgent agent) {
@@ -189,10 +213,11 @@ public class AgentRuntimeService {
         ChatModel chatModel = LlmFactory.buildChatModel(llm);
         StreamingChatModel streamingChatModel = LlmFactory.buildStreamChatModel(llm);
         LocalRuntime runtime = LocalRuntime.builder().workspace(workspace).build();
-        String systemPrompt = DesktopAgentPrompt.render(null);
+        String systemPrompt = DesktopAgentPrompt.render(null, skillLoader.loadSkillIndex(workspace.root()));
         try {
             return HarnessAgent.builder()
                     .runtime(runtime)
+                    .additionalTool(new DesktopSkillTool(skillLoader, workspace.root()))
                     .agentName(agent.name)
                     .systemPrompt(systemPrompt)
                     .chatModel(chatModel)
@@ -203,8 +228,8 @@ public class AgentRuntimeService {
                             AgentSettings.builder().maxSteps(10000).aiCallRetry(3).build())
                     .middleware(new UserMessageAppendMiddleware(appendService, appendEventListener))
                     .middleware(new LoggingIAgentMiddleware())
-                    .middleware(sessionLifecycleMiddleware)
                     .middleware(streamingMiddleware)
+                    .middleware(sessionLifecycleMiddleware)
                     .build();
         } catch (RuntimeException e) {
             runtime.close();
@@ -233,6 +258,17 @@ public class AgentRuntimeService {
     private static void close(HarnessAgent agent) {
         if (agent != null) {
             agent.close();
+        }
+    }
+
+    private static void runQuietly(Runnable runnable) {
+        if (runnable == null) {
+            return;
+        }
+        try {
+            runnable.run();
+        } catch (RuntimeException ignored) {
+            // 清理动作不能反向影响 Agent 生命周期。
         }
     }
 

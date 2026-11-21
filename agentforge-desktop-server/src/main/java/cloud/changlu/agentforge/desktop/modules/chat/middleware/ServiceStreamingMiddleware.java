@@ -19,10 +19,11 @@ import cloud.changlu.agentforge.service.protocol.processor.interrupt.InterruptEv
 import cloud.changlu.agentforge.service.protocol.processor.retry.AiRetryProcessor;
 import cloud.changlu.agentforge.service.protocol.processor.think.AiThinkProcessor;
 import cloud.changlu.agentforge.service.protocol.processor.tool.AiToolCallProcessor;
+import cloud.changlu.agentforge.desktop.modules.chat.event.sink.SseEmitterEventSink;
+import cloud.changlu.agentforge.desktop.modules.chat.event.sink.StreamEventSink;
 
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,7 +51,12 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
 
     /** 请求进入时绑定当前会话的 SSE 输出 */
     public void bind(Object memoryId, SseEmitter emitter) {
-        SessionContext previous = sessions.put(memoryId, new SessionContext(emitter));
+        bind(memoryId, new SseEmitterEventSink(emitter));
+    }
+
+    /** 后台任务绑定可持久化事件 Sink，不持有页面连接。 */
+    public void bind(Object memoryId, StreamEventSink sink) {
+        SessionContext previous = sessions.put(memoryId, new SessionContext(sink));
         if (previous != null) {
             previous.close();
         }
@@ -115,7 +121,6 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         StreamEventResponse event = InterruptEventProcessor.requested(batch.eventContent());
         publish(chatContext.getMemoryId(), event);
         lifecycleMiddleware.markWaitingForHitl(chatContext.getMemoryId(), event);
-        unbind(chatContext.getMemoryId());
     }
 
     /** 冻结批次开始恢复前调用。 */
@@ -330,14 +335,12 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
     /** 单次运行的 SSE 输出上下文，内部维护关闭状态与工具耗时 */
     private static final class SessionContext {
 
-        private final SseEmitter emitter;
+        private final StreamEventSink sink;
         private final AtomicBoolean closed = new AtomicBoolean(false);
         private final Map<String, Long> toolStartTimes = new ConcurrentHashMap<String, Long>();
 
-        private SessionContext(SseEmitter emitter) {
-            this.emitter = emitter;
-            this.emitter.onCompletion(() -> closed.set(true));
-            this.emitter.onTimeout(() -> closed.set(true));
+        private SessionContext(StreamEventSink sink) {
+            this.sink = sink;
         }
 
         private void startTool(ToolExecutionRequest request) {
@@ -376,24 +379,18 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
             if (closed.get()) {
                 return;
             }
-            try {
-                emitter.send(SseEmitter.event().data(event));
-            } catch (IOException | IllegalStateException ignored) {
-                closed.set(true);
-            }
+            sink.publish(event);
         }
 
         private void close() {
-            closed.set(true);
+            if (closed.compareAndSet(false, true)) {
+                sink.close();
+            }
         }
 
         private void dispose() {
             if (closed.compareAndSet(false, true)) {
-                try {
-                    emitter.complete();
-                } catch (Exception ignored) {
-                    // 客户端可能已断开
-                }
+                sink.close();
             }
         }
     }

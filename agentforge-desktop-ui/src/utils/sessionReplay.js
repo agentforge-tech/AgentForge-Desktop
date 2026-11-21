@@ -90,6 +90,9 @@ export function replayMessage(record) {
   let sawRespEnd = false
   const message = {
     role: 'assistant',
+    messageId: record.id,
+    lastEventSeq: 0,
+    seenEventSeq: new Set(),
     status: 'success',
     parts: [],
     content: '',
@@ -99,6 +102,11 @@ export function replayMessage(record) {
     elapsedMs: record.elapsedMs || null
   }
   events.forEach((event) => {
+    const eventSeq = Number(event && event.eventSeq)
+    if (Number.isFinite(eventSeq) && eventSeq > 0) {
+      message.seenEventSeq.add(eventSeq)
+      message.lastEventSeq = Math.max(message.lastEventSeq, eventSeq)
+    }
     switch (event.event) {
       case 'think':
         closeOpenResponseSegment(message, () => 0)

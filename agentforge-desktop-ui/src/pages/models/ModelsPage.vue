@@ -15,17 +15,21 @@
       </el-table-column>
       <el-table-column prop="modelName" label="模型标识" min-width="160" />
       <el-table-column prop="url" label="Base URL" min-width="220" show-overflow-tooltip />
-      <el-table-column label="操作" width="220" align="right">
+      <el-table-column label="操作" width="260" align="right">
         <template slot-scope="{ row }">
           <el-button type="text" @click="test(row)">测试</el-button>
+          <el-button type="text" @click="openCopy(row)">复制</el-button>
           <el-button type="text" @click="openEdit(row)">编辑</el-button>
           <el-button type="text" class="danger-text" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog :title="form.id ? '编辑模型' : '新增模型'" :visible.sync="dialogVisible" width="520px">
+    <el-dialog :title="dialogTitle" :visible.sync="dialogVisible" width="520px">
       <el-form label-position="top" size="small">
+        <div v-if="copyFromName" class="model-copy-tip">
+          已复制「{{ copyFromName }}」的配置，保存后将创建为新模型。
+        </div>
         <el-form-item label="名称">
           <el-input v-model="form.name" placeholder="例如 DeepSeek Flash" />
         </el-form-item>
@@ -73,8 +77,15 @@ export default {
     loading: false,
     saving: false,
     dialogVisible: false,
+    copyFromName: '',
     form: emptyForm()
   }),
+  computed: {
+    dialogTitle() {
+      if (this.copyFromName) return `复制模型 · ${this.form.name}`
+      return this.form.id ? '编辑模型' : '新增模型'
+    }
+  },
   created() {
     this.load()
   },
@@ -93,19 +104,44 @@ export default {
       }
     },
     openCreate() {
+      this.copyFromName = ''
       this.form = emptyForm()
       this.dialogVisible = true
     },
     openEdit(row) {
+      this.copyFromName = ''
       this.form = { ...row }
       this.dialogVisible = true
+    },
+    openCopy(row) {
+      this.copyFromName = row.name || '未命名模型'
+      this.form = {
+        ...row,
+        id: null,
+        name: this.nextCopyName(row.name)
+      }
+      this.dialogVisible = true
+    },
+    nextCopyName(name) {
+      const sourceName = String(name || '未命名模型')
+        .replace(/\s*[（(]复制(?:\s*\d+)?[）)]$/, '')
+        .trim() || '未命名模型'
+      const usedNames = new Set(this.models.map((model) => model.name))
+      let candidate = `${sourceName}（复制）`
+      let index = 2
+      while (usedNames.has(candidate)) {
+        candidate = `${sourceName}（复制 ${index}）`
+        index += 1
+      }
+      return candidate
     },
     async save() {
       this.saving = true
       try {
         await upsertModel(this.form)
-        this.$message.success('模型已保存')
+        this.$message.success(this.copyFromName ? '模型副本已创建' : '模型已保存')
         this.dialogVisible = false
+        this.copyFromName = ''
         await this.load()
       } catch (error) {
         this.$message.error(error.message || '保存失败')

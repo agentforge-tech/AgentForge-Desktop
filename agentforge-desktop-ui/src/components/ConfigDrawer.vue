@@ -66,6 +66,7 @@
               </div>
               <div class="drawer-model-actions">
                 <el-button type="text" @click="editModel(model)">编辑</el-button>
+                <el-button type="text" @click="copyModel(model)">复制</el-button>
                 <el-button type="text" @click="testModel(model)">测试</el-button>
               </div>
             </div>
@@ -77,13 +78,16 @@
     </div>
 
     <el-dialog
-      :title="modelForm.id ? '编辑模型' : '新增模型'"
+      :title="modelDialogTitle"
       :visible.sync="modelEditorVisible"
       width="520px"
       append-to-body
       custom-class="settings-editor-dialog"
     >
       <el-form label-position="top" size="small" class="compact-editor-form">
+        <div v-if="modelCopyFromName" class="model-copy-tip form-span-2">
+          已复制「{{ modelCopyFromName }}」的配置，修改后保存将创建为新模型。
+        </div>
         <el-form-item label="名称"><el-input v-model="modelForm.name" /></el-form-item>
         <el-form-item label="厂商">
           <el-select v-model="modelForm.provider" style="width: 100%"><el-option label="OpenAI" :value="1" /><el-option label="Anthropic" :value="2" /></el-select>
@@ -128,7 +132,7 @@ const emptyAgent = () => ({
   aid: '',
   name: '',
   description: '',
-  avatar: '/logo.png',
+  avatar: '',
   type: 1,
   modelIds: [],
   defaultModelId: null,
@@ -156,9 +160,14 @@ export default {
     agentForm: emptyAgent(),
     initError: '',
     modelEditorVisible: false,
-    modelForm: emptyModel()
+    modelForm: emptyModel(),
+    modelCopyFromName: ''
   }),
   computed: {
+    modelDialogTitle() {
+      if (this.modelCopyFromName) return '复制模型'
+      return this.modelForm.id ? '编辑模型' : '新增模型'
+    },
     selectableModels() {
       if (!this.agentForm.modelIds.length) return this.models
       return this.models.filter((model) => this.agentForm.modelIds.includes(model.id))
@@ -234,13 +243,38 @@ export default {
     },
     newModel() {
       this.modelForm = emptyModel()
+      this.modelCopyFromName = ''
       this.modelTestResult = null
       this.modelEditorVisible = true
     },
     editModel(model) {
       this.modelForm = { ...model }
+      this.modelCopyFromName = ''
       this.modelTestResult = null
       this.modelEditorVisible = true
+    },
+    copyModel(model) {
+      this.modelForm = {
+        ...model,
+        id: null,
+        name: this.nextCopyName(model.name)
+      }
+      this.modelCopyFromName = model.name || '未命名模型'
+      this.modelTestResult = null
+      this.modelEditorVisible = true
+    },
+    nextCopyName(name) {
+      const sourceName = String(name || '未命名模型')
+        .replace(/\s*[（(]复制(?:\s*\d+)?[）)]$/, '')
+        .trim() || '未命名模型'
+      const usedNames = new Set(this.models.map((model) => model.name))
+      let candidate = `${sourceName}（复制）`
+      let index = 2
+      while (usedNames.has(candidate)) {
+        candidate = `${sourceName}（复制 ${index}）`
+        index += 1
+      }
+      return candidate
     },
     async testModelForm() {
       if (!this.modelForm.url || !this.modelForm.modelName) {
@@ -277,9 +311,11 @@ export default {
     async saveModel() {
       this.savingModel = true
       try {
+        const copied = Boolean(this.modelCopyFromName)
         await upsertModel(this.modelForm)
-        this.$message.success('模型已保存')
+        this.$message.success(copied ? '模型副本已创建' : '模型已保存')
         this.modelEditorVisible = false
+        this.modelCopyFromName = ''
         await this.load()
         this.$emit('saved')
       } catch (error) {

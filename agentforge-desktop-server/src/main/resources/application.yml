@@ -25,6 +25,7 @@ agentforge:
     config-file: ${AGENTFORGE_DESKTOP_CONFIG:}
     cancel-wait-timeout-ms: ${AGENTFORGE_CHAT_CANCEL_WAIT_TIMEOUT_MS:15000}
     cancel-poll-interval-ms: ${AGENTFORGE_CHAT_CANCEL_POLL_INTERVAL_MS:200}
+    chat-event-store-type: ${AGENTFORGE_CHAT_EVENT_STORE_TYPE:sqlite}
 
 logging:
   level:

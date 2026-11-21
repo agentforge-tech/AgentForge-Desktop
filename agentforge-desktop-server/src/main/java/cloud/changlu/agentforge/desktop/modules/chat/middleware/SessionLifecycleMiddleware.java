@@ -64,6 +64,15 @@ public class SessionLifecycleMiddleware implements IStreamingIAgentMiddleware {
         this.objectMapper = objectMapper;
     }
 
+    /** 二段式任务在线程池启动前预注册状态，保证线程池拒绝也能收口占位消息。 */
+    public void registerRun(
+            Object memoryId, String sessionId, Long sessionPk, Long aiMessageId) {
+        if (memoryId == null || aiMessageId == null) {
+            return;
+        }
+        states.putIfAbsent(memoryId, new RunState(memoryId, sessionId, sessionPk, aiMessageId));
+    }
+
     @Override
     public void onInitComplete(AgentChatContext chatContext) {
         RunState state = state(chatContext);
