@@ -249,8 +249,12 @@
                 @created="onWorkspaceCreated"
               />
               <div class="composer-model-control">
-                <img v-if="selectedModelLogo" class="composer-selected-model-logo" :src="selectedModelLogo" :alt="selectedModel ? selectedModel.name : '模型'" />
-                <i v-else class="el-icon-cpu composer-selected-model-fallback"></i>
+                <div class="composer-model-display" aria-hidden="true">
+                  <img v-if="selectedModelLogo" class="composer-selected-model-logo" :src="selectedModelLogo" :alt="selectedModel ? selectedModel.name : '模型'" />
+                  <i v-else class="el-icon-cpu composer-selected-model-fallback"></i>
+                  <span class="composer-model-display-name">{{ selectedModelName || '选择模型' }}</span>
+                  <i class="el-icon-arrow-down composer-model-display-arrow"></i>
+                </div>
                 <el-select
                   v-model="selectedModelId"
                   class="composer-model-select"
@@ -353,6 +357,7 @@ import { request } from '../../api/client'
 import { deleteWorkspace, fetchWorkspaces, renameWorkspace } from '../../api/workspace'
 import agentLogo from '../../assets/agent-logo.png'
 import deepseekLogo from '../../assets/deepseek.svg'
+import openaiLogo from '../../assets/openai.svg'
 
 const COMPOSER_MAX_HEIGHT = 140
 const MODE_KEY = 'agentforge.render.mode'
@@ -419,6 +424,10 @@ export default {
     },
     selectedModelLogo() {
       return this.modelLogo(this.selectedModel)
+    },
+    selectedModelName() {
+      const model = this.selectedModel
+      return model ? (model.modelName || model.name || '') : ''
     },
     currentAgentAvatar() {
       const avatar = this.currentAgent && this.currentAgent.avatar
@@ -511,6 +520,7 @@ export default {
   methods: {
     modelLogo(model) {
       const identity = [model && model.name, model && model.modelName].filter(Boolean).join(' ').toLowerCase()
+      if (identity.includes('gpt') || identity.includes('openai')) return openaiLogo
       return identity.includes('deepseek') ? deepseekLogo : ''
     },
     async bootstrap() {

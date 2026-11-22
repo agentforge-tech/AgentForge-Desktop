@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  platform: process.platform,
   getLocalServerInfo() {
     return ipcRenderer.invoke('local-agent:server-info')
   },

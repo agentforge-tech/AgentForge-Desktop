@@ -14,6 +14,7 @@ import cloud.changlu.agentforge.model.chat.request.ChatRequest;
 import cloud.changlu.agentforge.model.chat.request.DefaultChatRequestParameters;
 import cloud.changlu.agentforge.model.chat.request.ToolChoice;
 import cloud.changlu.agentforge.model.chat.response.ChatResponse;
+import cloud.changlu.agentforge.model.http.HttpUserAgent;
 import cloud.changlu.agentforge.model.registry.LlmFactory;
 import cloud.changlu.agentforge.model.registry.config.LlmBasicConfig;
 import cloud.changlu.agentforge.model.registry.constant.ChatModelProperties;
@@ -146,7 +147,11 @@ public class ModelConfigService {
 
     private ChatModel buildChatModel(DesktopConfigStore.ModelConfig model) {
         ChatModelProperties properties =
-                ChatModelProperties.builder().timeout(120000).returnThinking(true).build();
+                ChatModelProperties.builder()
+                        .timeout(120000)
+                        .returnThinking(true)
+                        .userAgent(HttpUserAgent.productUserAgent("AgentForge-Desktop", "0.1.0"))
+                        .build();
         LlmBasicConfig config =
                 LlmBasicConfig.builder()
                         .provider(model.provider)

@@ -227,7 +227,7 @@
   gap: 5px;
   padding: 7px 9px;
   color: #5f6672;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 600;
   border: 0;
   background: transparent;
@@ -481,7 +481,7 @@
 }
 
 .workspace-tree-sessions {
-  margin-left: 15px;
+  margin-left: 12px;
   padding-left: 8px;
   border-left: 1px solid #e5e7eb;
 }
@@ -932,26 +932,47 @@
 
 .composer-model-control {
   position: relative;
-  width: 204px;
+  display: inline-flex;
+  width: max-content;
   max-width: 48%;
   margin-left: auto;
 }
 
 .composer-model-select {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
   width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+
+.composer-model-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  max-width: 100%;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: #596273;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: background-color 0.15s ease;
+}
+
+.composer-model-control:hover .composer-model-display,
+.composer-model-control:focus-within .composer-model-display {
+  background: #f5f6f8;
 }
 
 .composer-selected-model-logo,
 .composer-selected-model-fallback {
-  position: absolute;
-  z-index: 2;
-  top: 50%;
-  left: 9px;
+  flex: 0 0 auto;
   width: 17px;
   height: 17px;
-  transform: translateY(-50%);
   object-fit: contain;
-  pointer-events: none;
 }
 
 .composer-selected-model-fallback {
@@ -960,19 +981,21 @@
   line-height: 17px;
 }
 
-.composer-model-select .el-input__inner {
-  height: 30px;
-  border: 0;
-  border-radius: 8px;
-  padding-left: 33px;
-  padding-right: 34px;
-  background: #f5f6f8;
-  color: #596273;
-  font-size: 12px;
+.composer-model-display-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #475467;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.composer-model-select .el-input__suffix {
-  right: 4px;
+.composer-model-display-arrow {
+  flex: 0 0 auto;
+  color: #7b8492;
+  font-size: 12px;
 }
 
 .composer-model-popper.el-select-dropdown {

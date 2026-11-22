@@ -28,6 +28,46 @@ button {
   overflow: hidden;
 }
 
+.app-shell.has-mac-titlebar {
+  flex-direction: column;
+}
+
+.mac-window-titlebar {
+  position: relative;
+  display: flex;
+  flex: 0 0 38px;
+  width: 100%;
+  background: #fff;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-shell.is-mac .session-sidebar {
+  position: relative;
+}
+
+.app-shell.is-mac .session-sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 36px;
+  -webkit-app-region: drag;
+}
+
+.app-shell.is-mac .session-head {
+  padding-top: 36px;
+}
+
+.app-shell.is-mac .chat-header {
+  -webkit-app-region: drag;
+}
+
+.app-shell.is-mac .chat-toolbar {
+  -webkit-app-region: no-drag;
+}
+
 .nav-rail {
   width: 64px;
   flex: 0 0 64px;

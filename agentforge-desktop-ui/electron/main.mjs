@@ -200,6 +200,7 @@ function createWindow() {
     minWidth: 1080,
     minHeight: 700,
     title: 'AgentForge Desktop',
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : {}),
     backgroundColor: '#ffffff',
     show: true,
     center: true,

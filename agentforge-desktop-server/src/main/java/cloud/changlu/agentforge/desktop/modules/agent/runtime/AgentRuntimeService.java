@@ -1,5 +1,8 @@
 package cloud.changlu.agentforge.desktop.modules.agent.runtime;
 
+import cloud.changlu.agentforge.agent.config.LlmModelConfig;
+import cloud.changlu.agentforge.agent.config.LlmModelConfigRegistry;
+import cloud.changlu.agentforge.agent.config.LlmModelConfigRegistryApi;
 import cloud.changlu.agentforge.agent.domain.AgentRequest;
 import cloud.changlu.agentforge.agent.domain.AgentSettings;
 import cloud.changlu.agentforge.agent.extend.memory.window.MessageWindowChatMemoryProvider;
@@ -21,6 +24,7 @@ import cloud.changlu.agentforge.desktop.store.DesktopConfigStore;
 import cloud.changlu.agentforge.desktop.store.SqliteChatMemoryStore;
 import cloud.changlu.agentforge.harness.agent.HarnessAgent;
 import cloud.changlu.agentforge.harness.runtime.local.LocalRuntime;
+import cloud.changlu.agentforge.harness.runtime.local.config.LocalRuntimeOptions;
 import cloud.changlu.agentforge.harness.runtime.local.workspace.Workspace;
 import cloud.changlu.agentforge.model.chat.ChatModel;
 import cloud.changlu.agentforge.model.chat.StreamingChatModel;
@@ -50,6 +54,8 @@ public class AgentRuntimeService {
     private final UserMessageAppendEventListener appendEventListener;
     private final AgentInterruptStore agentInterruptStore;
     private final SkillLoader skillLoader;
+    private static final LlmModelConfigRegistryApi MODEL_CONFIG_REGISTRY =
+            LlmModelConfigRegistry.registry();
 
     private final Map<String, HarnessAgent> cache = new ConcurrentHashMap<String, HarnessAgent>();
     private volatile long lastRevision = -1L;
@@ -195,8 +201,15 @@ public class AgentRuntimeService {
             DesktopConfigStore.AgentConfig agent,
             DesktopConfigStore.ModelConfig model,
             Workspace workspace) {
+//        LlmModelConfig modelAdvancedConfig =
+//                MODEL_CONFIG_REGISTRY.getConfig(llmConfig.getUrl(), llmConfig.getModelName());
         ChatModelProperties properties =
-                ChatModelProperties.builder().timeout(2 * 60 * 60).returnThinking(true).build();
+                ChatModelProperties.builder().timeout(2 * 60 * 60)
+//                        .maxTokens(
+//                                toActualTokens(
+//                                        chatModelConfig.getMaxOutputKTokens(),
+//                                        modelAdvancedConfig.getMaxOutputTokens()))
+                        .returnThinking(true).build();
         LlmBasicConfig llm =
                 LlmBasicConfig.builder()
                         .provider(model.provider)
@@ -212,7 +225,12 @@ public class AgentRuntimeService {
 
         ChatModel chatModel = LlmFactory.buildChatModel(llm);
         StreamingChatModel streamingChatModel = LlmFactory.buildStreamChatModel(llm);
-        LocalRuntime runtime = LocalRuntime.builder().workspace(workspace).build();
+        LocalRuntime runtime = LocalRuntime.builder()
+                .options(LocalRuntimeOptions.builder()
+                        // 5分钟超时，避免长时间阻塞 Agent 执行。
+                        .commandTimeoutMillis(5 * 60 * 1000)
+                        .build())
+                .workspace(workspace).build();
         String systemPrompt = DesktopAgentPrompt.render(null, skillLoader.loadSkillIndex(workspace.root()));
         try {
             return HarnessAgent.builder()
