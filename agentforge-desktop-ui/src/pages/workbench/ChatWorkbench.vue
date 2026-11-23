@@ -39,7 +39,7 @@
             <div v-for="item in pinnedTaskSessions" :key="'pinned-task-' + item.id" class="session-item" :class="{ active: item.id === activeSessionId }" @click="openSession(item)">
               <div class="session-body">
                 <span class="session-text" :title="item.title">{{ item.title }}</span>
-                <i v-if="item.running" class="el-icon-loading session-running-icon" title="任务运行中" aria-label="任务运行中"></i>
+                <i v-if="isSessionRunning(item)" class="el-icon-loading session-running-icon" title="任务运行中" aria-label="任务运行中"></i>
                 <span class="session-time">{{ formatSessionTime(item) }}</span>
               </div>
               <el-dropdown class="session-more" trigger="click" placement="bottom-start" @command="handleSessionCommand($event, item)" @click.native.stop>
@@ -66,7 +66,7 @@
               <div v-for="item in group.items" :key="'normal-task-' + item.id" class="session-item" :class="{ active: item.id === activeSessionId }" @click="openSession(item)">
               <div class="session-body">
                 <span class="session-text" :title="item.title">{{ item.title }}</span>
-                <i v-if="item.running" class="el-icon-loading session-running-icon" title="任务运行中" aria-label="任务运行中"></i>
+                <i v-if="isSessionRunning(item)" class="el-icon-loading session-running-icon" title="任务运行中" aria-label="任务运行中"></i>
                 <span class="session-time">{{ formatSessionTime(item) }}</span>
               </div>
               <el-dropdown class="session-more" trigger="click" placement="bottom-start" @command="handleSessionCommand($event, item)" @click.native.stop>
@@ -114,7 +114,7 @@
               >
                 <div class="session-body">
                   <span class="session-text" :title="item.title">{{ item.title }}</span>
-                  <i v-if="item.running" class="el-icon-loading session-running-icon" title="任务运行中" aria-label="任务运行中"></i>
+                  <i v-if="isSessionRunning(item)" class="el-icon-loading session-running-icon" title="任务运行中" aria-label="任务运行中"></i>
                   <span class="session-time">{{ formatSessionTime(item) }}</span>
                 </div>
                 <el-dropdown class="session-more" trigger="click" placement="bottom-start" @command="handleSessionCommand($event, item)" @click.native.stop>
@@ -740,6 +740,10 @@ export default {
       }
       this.skillManagerOpen = true
     },
+    isSessionRunning(item) {
+      if (!item) return false
+      return Boolean(item.running) || (this.running && item.id === this.activeSessionId)
+    },
     formatSessionTime(item) {
       const raw = item.lastMessageAt || item.modifyTime || item.createTime
       if (!raw) return ''
@@ -822,6 +826,44 @@ export default {
     },
     onComposerInput(value) {
       this.draft = value
+      this.syncComposerResources(value)
+    },
+    parseComposerMarkers(text) {
+      const pattern = /\[\[agentforge-resource:([^:\]]+):([^\]]+)\]\]/g
+      const markers = []
+      for (const match of String(text || '').matchAll(pattern)) {
+        let path = match[2]
+        try {
+          path = decodeURIComponent(path)
+        } catch (error) {
+          // 保留原始编码，避免异常标记导致整个输入不可用
+        }
+        if (path) markers.push({ type: match[1], path })
+      }
+      return markers
+    },
+    syncComposerResources(text) {
+      const next = []
+      const seen = new Set()
+      this.parseComposerMarkers(text).forEach((marker) => {
+        if (seen.has(marker.path)) return
+        seen.add(marker.path)
+        const existing = this.composerResources.find((item) => item.path === marker.path)
+        if (existing) {
+          next.push(existing)
+          return
+        }
+        const resource = this.normalizeResource({ path: marker.path, type: marker.type })
+        if (resource) next.push(resource)
+      })
+      const unchanged =
+        next.length === this.composerResources.length &&
+        next.every((item, index) => item === this.composerResources[index])
+      if (!unchanged) this.composerResources = next
+    },
+    activeComposerResources(text) {
+      const paths = new Set(this.parseComposerMarkers(text).map((marker) => marker.path))
+      return this.composerResources.filter((item) => paths.has(item.path))
     },
     onEnter() {
       if (this.running && (this.draft.trim() || this.composerResources.length)) {
@@ -874,10 +916,6 @@ export default {
     addComposerResources(resources, richSelection) {
       const added = []
       ;(resources || []).forEach((raw) => {
-        if (this.composerResources.length + added.length >= 5) {
-          this.$message.warning('单条消息最多添加 5 个资源')
-          return
-        }
         const resource = this.normalizeResource(raw)
         if (!resource || this.composerResources.some((item) => item.path === resource.path)) return
         this.composerResources.push(resource)
@@ -1031,7 +1069,7 @@ export default {
     },
     async send() {
       const text = this.draft.trim()
-      const resources = this.composerResources.slice()
+      const resources = this.activeComposerResources(text)
       if (!this.canChat) {
         this.$message.warning('请先创建 Agent 并配置模型')
         return
@@ -1081,6 +1119,7 @@ export default {
         if (submitted && submitted.sessionId) this.sessionId = submitted.sessionId
         if (submitted && submitted.sessionPk) this.activeSessionId = submitted.sessionPk
         if (submitted && submitted.title && !this.sessionTitle) this.sessionTitle = submitted.title
+        if (submitted && submitted.sessionPk) await this.loadSessions({ silent: true })
         await this.consumeTask(answer, visibleText || '本地资源', controller)
       } catch (error) {
         if (error.name !== 'AbortError' && answer.status === 'running') {
@@ -1275,7 +1314,7 @@ export default {
     async sendAppend() {
       if (this.stopping) return
       const text = this.draft.trim()
-      const resources = this.composerResources.slice()
+      const resources = this.activeComposerResources(text)
       if ((!text && !resources.length) || !this.sessionId) {
         if (!this.sessionId) this.$message.warning('请先发送一轮对话后再追加指令')
         return

@@ -34,9 +34,6 @@ import java.util.regex.Pattern;
 @Service
 public class DesktopResourceService {
 
-    /** 单条消息最多携带的资源数量，与 AgentForge service 保持一致。 */
-    private static final int MAX_RESOURCES_PER_MESSAGE = 5;
-
     private static final Pattern RESOURCE_PATTERN =
             Pattern.compile("\\[\\[agentforge-resource:([^:\\]]+):([^\\]]+)\\]\\]");
 
@@ -90,7 +87,7 @@ public class DesktopResourceService {
     /**
      * 校验并解析本次请求引用的本地资源。
      *
-     * @throws IllegalArgumentException 资源不存在或数量超限
+     * @throws IllegalArgumentException 资源不存在
      */
     public List<ResolvedResource> resolve(List<ResourceRef> references) {
         if (references == null || references.isEmpty()) {
@@ -114,10 +111,6 @@ public class DesktopResourceService {
                 throw new IllegalArgumentException("本地资源不存在或已被移动: " + identity);
             }
             unique.put(identity, toResolved(reference, path));
-        }
-        if (unique.size() > MAX_RESOURCES_PER_MESSAGE) {
-            throw new IllegalArgumentException(
-                    "单条消息最多携带 " + MAX_RESOURCES_PER_MESSAGE + " 个资源");
         }
         return new ArrayList<ResolvedResource>(unique.values());
     }

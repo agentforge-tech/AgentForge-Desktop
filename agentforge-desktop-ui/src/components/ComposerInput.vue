@@ -3,7 +3,7 @@
     <span
       ref="editor"
       class="composer-input-editor"
-      :class="{ 'is-disabled': disabled, 'is-empty': isEmpty }"
+      :class="{ 'is-disabled': disabled, 'is-empty': isEmpty, 'has-resources': hasResources }"
       :contenteditable="disabled ? 'false' : 'true'"
       :data-placeholder="placeholder"
       role="textbox"
@@ -45,6 +45,9 @@ export default {
   computed: {
     isEmpty() {
       return !this.value
+    },
+    hasResources() {
+      return /\[\[agentforge-resource:/.test(this.value || '')
     }
   },
   mounted() {
@@ -269,4 +272,5 @@ export default {
 .composer-input-editor.is-empty::before{content:attr(data-placeholder);color:#9aa0aa;pointer-events:none}
 .composer-input-editor.is-empty:focus::before{content:none}
 .composer-input-editor.is-disabled{color:#a0a6af;cursor:not-allowed}
+.composer-input-editor.has-resources{line-height:30px}
 </style>

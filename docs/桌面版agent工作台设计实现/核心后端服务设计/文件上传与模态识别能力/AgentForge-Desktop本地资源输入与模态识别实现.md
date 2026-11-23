@@ -159,7 +159,7 @@ AttachmentContentAssembler -> UserMessage(TextContent + ImageContent)
 | 粘贴剪贴板图片 | `clipboard.readImage().toPNG()` 写入临时目录 |
 | 历史回放 | 从 `req.rawMessage` 还原标记 |
 
-单条消息最多 5 个资源，前端与后端均做限制。
+单条消息可不限数量地引用资源，前端与后端均不做数量限制（仅按绝对路径去重）。
 
 ---
 
