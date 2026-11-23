@@ -377,6 +377,19 @@ function registerIpc() {
     })
     return result.canceled ? [] : describeResources(result.filePaths)
   })
+  ipcMain.handle('local-agent:read-clipboard-text', () => {
+    const text = clipboard.readText()
+    if (text && text.trim()) return text
+    const raw = clipboard.read('public.file-url') || clipboard.read('text/uri-list') || ''
+    const first = String(raw).split(/\r?\n/).map((line) => line.trim()).find(Boolean) || ''
+    if (!first) return ''
+    try {
+      return first.startsWith('file://') ? fileURLToPath(first) : first
+    } catch (_error) {
+      return first
+    }
+  })
+
   ipcMain.handle('local-agent:read-clipboard-resources', async () => {
     const resources = []
     try {

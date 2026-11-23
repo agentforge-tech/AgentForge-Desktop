@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   chooseResourceFolder(currentPath) {
     return ipcRenderer.invoke('local-agent:choose-resource-folder', currentPath)
   },
+  readClipboardText() {
+    return ipcRenderer.invoke('local-agent:read-clipboard-text')
+  },
   readClipboardResources() {
     return ipcRenderer.invoke('local-agent:read-clipboard-resources')
   },

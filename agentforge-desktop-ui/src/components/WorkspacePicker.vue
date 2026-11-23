@@ -13,6 +13,7 @@
         <div class="workspace-menu-actions">
           <button type="button" @click="showCreate"><i class="el-icon-plus"></i><span>新建工作空间</span></button>
           <button type="button" @click="chooseFolder"><i class="el-icon-folder-opened"></i><span>打开本地文件夹</span></button>
+          <button type="button" @click="showImportPath"><i class="el-icon-edit-outline"></i><span>输入路径添加</span></button>
           <button v-if="selectedId" type="button" @click="clearSelection"><i class="el-icon-close"></i><span>取消选择</span></button>
         </div>
       </div>
@@ -31,6 +32,23 @@
         <el-button type="primary" :disabled="!name.trim()" :loading="creating" @click="confirmCreate">确认</el-button>
       </span>
     </el-dialog>
+
+    <el-dialog title="输入路径添加工作空间" :visible.sync="pathVisible" width="520px" append-to-body custom-class="workspace-create-dialog">
+      <p class="workspace-create-tip">直接粘贴本地文件夹完整路径；macOS 可在访达中按 ⌥⌘C 复制路径，支持 <code>file://</code> 与 <code>~/</code> 路径。</p>
+      <el-input
+        ref="pathInput"
+        v-model="folderPath"
+        placeholder="/Users/you/Documents/project"
+        clearable
+        @keyup.enter.native="confirmImportPath"
+      >
+        <el-button slot="append" icon="el-icon-document-copy" @click="fillFromClipboard(true)">粘贴</el-button>
+      </el-input>
+      <span slot="footer">
+        <el-button @click="pathVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!folderPath.trim()" :loading="importing" @click="confirmImportPath">确认</el-button>
+      </span>
+    </el-dialog>
   </div>
 </template>
 
@@ -45,7 +63,16 @@ export default {
     locked: { type: Boolean, default: false }
   },
   data() {
-    return { open: false, keyword: '', createVisible: false, name: '', creating: false }
+    return {
+      open: false,
+      keyword: '',
+      createVisible: false,
+      name: '',
+      creating: false,
+      pathVisible: false,
+      folderPath: '',
+      importing: false
+    }
   },
   computed: {
     selected() { return this.workspaces.find((item) => item.id === this.selectedId) || null },
@@ -90,13 +117,72 @@ export default {
       }
       const selected = await window.electronAPI.chooseDirectory('')
       if (!selected) return
+      await this.importFolderPath(selected, '本地文件夹已添加')
+    },
+    showImportPath() {
+      this.open = false
+      this.folderPath = ''
+      this.pathVisible = true
+      this.$nextTick(async () => {
+        if (this.$refs.pathInput) this.$refs.pathInput.focus()
+        await this.fillFromClipboard(false)
+      })
+    },
+    async confirmImportPath() {
+      const path = this.normalizeFolderPath(this.folderPath)
+      if (!path || this.importing) return
+      await this.importFolderPath(path, '工作空间已就绪')
+    },
+    async importFolderPath(folderPath, successMessage) {
+      this.importing = true
       try {
-        const item = await importWorkspace(selected)
+        const item = await importWorkspace(folderPath)
         this.$emit('created', item)
-        this.$message.success('本地文件夹已添加')
+        this.pathVisible = false
+        this.$message.success(successMessage)
       } catch (error) {
         this.$message.error(error.message || '添加本地文件夹失败')
+      } finally {
+        this.importing = false
       }
+    },
+    async fillFromClipboard(notify) {
+      if (!window.electronAPI || !window.electronAPI.readClipboardText) {
+        if (notify) this.$message.info('当前环境不支持读取剪贴板')
+        return
+      }
+      try {
+        const candidate = this.normalizeFolderPath(await window.electronAPI.readClipboardText())
+        if (candidate && this.looksLikePath(candidate)) {
+          this.folderPath = candidate
+          return
+        }
+        if (notify) this.$message.warning('剪贴板中没有可用的文件夹路径')
+      } catch (error) {
+        if (notify) this.$message.warning('读取剪贴板失败')
+      }
+    },
+    normalizeFolderPath(raw) {
+      let value = String(raw || '').trim()
+      if (!value) return ''
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1).trim()
+      }
+      if (/^file:\/\//i.test(value)) {
+        try {
+          value = decodeURIComponent(new URL(value).pathname)
+        } catch (error) {
+          return ''
+        }
+      }
+      return value
+    },
+    looksLikePath(value) {
+      const path = String(value || '').trim()
+      return /^\//.test(path) || /^~\//.test(path) || /^[A-Za-z]:[\\/]/.test(path) || path === '~'
     }
   }
 }

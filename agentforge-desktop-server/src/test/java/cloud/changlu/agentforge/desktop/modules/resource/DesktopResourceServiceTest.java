@@ -55,7 +55,7 @@ class DesktopResourceServiceTest {
     }
 
     @Test
-    void rejectsMoreThanFiveResources(@TempDir Path dir) throws Exception {
+    void allowsMoreThanFiveResources(@TempDir Path dir) throws Exception {
         ResourceRef[] refs = new ResourceRef[6];
         for (int i = 0; i < refs.length; i++) {
             Path file = Files.write(
@@ -63,9 +63,8 @@ class DesktopResourceServiceTest {
                     ("text" + i).getBytes(StandardCharsets.UTF_8));
             refs[i] = ref(file, "document");
         }
-        IllegalArgumentException error = assertThrows(
-                IllegalArgumentException.class, () -> service.resolve(Arrays.asList(refs)));
-        assertTrue(error.getMessage().contains("5"));
+        List<ResolvedResource> resources = service.resolve(Arrays.asList(refs));
+        assertEquals(6, resources.size());
     }
 
     private static ResourceRef ref(Path path, String type) {

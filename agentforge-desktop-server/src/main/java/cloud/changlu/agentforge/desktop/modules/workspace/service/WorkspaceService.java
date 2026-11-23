@@ -43,8 +43,9 @@ public class WorkspaceService {
     }
 
     public WorkspacePojo importFolder(String rawName, String rawPath) {
-        if (rawPath == null || rawPath.trim().isEmpty()) throw new IllegalArgumentException("文件夹路径不能为空");
-        Path folder = Paths.get(rawPath.trim()).toAbsolutePath().normalize();
+        String path = normalizeFolderPath(rawPath);
+        if (path.isEmpty()) throw new IllegalArgumentException("文件夹路径不能为空");
+        Path folder = Paths.get(path).toAbsolutePath().normalize();
         if (!Files.isDirectory(folder)) throw new IllegalArgumentException("所选路径不是可用文件夹");
         WorkspacePojo existing = mapper.selectByFolderPath(folder.toString());
         if (existing != null) return existing;
@@ -103,6 +104,28 @@ public class WorkspaceService {
             throw new IllegalArgumentException("工作空间名称包含非法字符");
         }
         return name;
+    }
+
+    private static String normalizeFolderPath(String rawPath) {
+        if (rawPath == null) return "";
+        String path = rawPath.trim();
+        if (path.length() >= 2
+                && ((path.startsWith("\"") && path.endsWith("\""))
+                        || (path.startsWith("'") && path.endsWith("'")))) {
+            path = path.substring(1, path.length() - 1).trim();
+        }
+        if (path.regionMatches(true, 0, "file://", 0, 7)) {
+            try {
+                path = new java.net.URI(path).getPath();
+            } catch (Exception ignored) {
+                path = "";
+            }
+            if (path == null) path = "";
+        }
+        if (path.equals("~") || path.startsWith("~/")) {
+            path = System.getProperty("user.home", "") + path.substring(1);
+        }
+        return path;
     }
 
     private static String trimToNull(String text) {
