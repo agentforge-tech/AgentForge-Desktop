@@ -20,6 +20,7 @@ import cloud.changlu.agentforge.desktop.modules.chat.domain.AskUserAnswerReq;
 import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptRuntimeRegistry;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatStopVo;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatStreamRequest;
+import cloud.changlu.agentforge.desktop.modules.chat.governance.DesktopPermissionModule;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreamingMiddleware;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.SessionLifecycleMiddleware;
 import cloud.changlu.agentforge.desktop.modules.resource.domain.ResolvedResource;
@@ -152,7 +153,9 @@ public class ChatController {
             init = sessionService.initChat(
                     aid, resolvedSessionId, displayMessage, modelId, 1L,
                     binding.getWorkspaceId(), binding.getWorkspacePath(), reqJson);
-            runtime = runtimeService.getOrCreate(agent, model, binding.getWorkspacePath());
+            runtime = runtimeService.getOrCreate(
+                    agent, model, binding.getWorkspacePath(),
+                    DesktopPermissionModule.resolveMode(body.getMode()));
         } catch (RuntimeException e) {
             return notice(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }

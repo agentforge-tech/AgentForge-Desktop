@@ -13,14 +13,22 @@ import cloud.changlu.agentforge.agent.governance.permission.domain.PermissionMod
  */
 public final class DesktopPermissionModule {
 
+    private static final int MODE_BYPASS = 2;
+
     private DesktopPermissionModule() {}
 
     public static PermissionInterruptModule build(AgentInterruptStore interruptStore) {
+        return build(interruptStore, PermissionMode.DEFAULT);
+    }
+
+    public static PermissionInterruptModule build(
+            AgentInterruptStore interruptStore, PermissionMode permissionMode) {
         if (interruptStore == null) {
             throw new IllegalArgumentException("interruptStore must not be null");
         }
         return PermissionInterruptModule.builder()
-                .activePermissionMode(PermissionMode.DEFAULT)
+                .activePermissionMode(
+                        permissionMode == null ? PermissionMode.DEFAULT : permissionMode)
                 .interruptStore(interruptStore)
                 .enableAskUser()
                 .ruleHandler(new ShellCommandPermissionRuleHandler())
@@ -28,5 +36,12 @@ public final class DesktopPermissionModule {
                         new ShellCommandPermissionRule(
                                 "desktop_bash_high_risk", PermissionDecision.ASK))
                 .build();
+    }
+
+    /** 前端 mode=2 表示完全访问，其余按默认权限处理。 */
+    public static PermissionMode resolveMode(Integer mode) {
+        return mode != null && mode == MODE_BYPASS
+                ? PermissionMode.BYPASS
+                : PermissionMode.DEFAULT;
     }
 }

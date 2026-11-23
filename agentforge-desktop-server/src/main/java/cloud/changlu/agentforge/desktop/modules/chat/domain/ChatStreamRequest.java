@@ -9,6 +9,7 @@ public class ChatStreamRequest {
     private String sessionId;
     private String message;
     private Long modelId;
+    private Integer mode;
     private String projectPath;
     private Long workspaceId;
     private List<ResourceRef> files;
@@ -21,6 +22,8 @@ public class ChatStreamRequest {
     public void setMessage(String message) { this.message = message; }
     public Long getModelId() { return modelId; }
     public void setModelId(Long modelId) { this.modelId = modelId; }
+    public Integer getMode() { return mode; }
+    public void setMode(Integer mode) { this.mode = mode; }
     public String getProjectPath() { return projectPath; }
     public void setProjectPath(String projectPath) { this.projectPath = projectPath; }
     public Long getWorkspaceId() { return workspaceId; }

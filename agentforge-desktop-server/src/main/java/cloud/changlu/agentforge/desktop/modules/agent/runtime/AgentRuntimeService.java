@@ -13,6 +13,7 @@ import cloud.changlu.agentforge.agent.extend.middlewares.append.service.IUserMes
 import cloud.changlu.agentforge.agent.extend.middlewares.read.middleware.ReadArtifactMiddleware;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptBatchResumeCommand;
 import cloud.changlu.agentforge.agent.governance.interrupt.spi.AgentInterruptStore;
+import cloud.changlu.agentforge.agent.governance.permission.domain.PermissionMode;
 import cloud.changlu.agentforge.agent.stream.TokenStream;
 import cloud.changlu.agentforge.desktop.config.DesktopProperties;
 import cloud.changlu.agentforge.desktop.config.DesktopAgentPrompt;
@@ -91,9 +92,18 @@ public class AgentRuntimeService {
             DesktopConfigStore.AgentConfig agent,
             DesktopConfigStore.ModelConfig model,
             String projectPath) {
+        return getOrCreate(agent, model, projectPath, PermissionMode.DEFAULT);
+    }
+
+    public HarnessAgent getOrCreate(
+            DesktopConfigStore.AgentConfig agent,
+            DesktopConfigStore.ModelConfig model,
+            String projectPath,
+            PermissionMode permissionMode) {
         refreshIfNeeded();
         Workspace workspace = resolveWorkspace(agent.aid, projectPath);
-        String key = key(agent.aid, model.id, workspace.root());
+        PermissionMode mode = permissionMode == null ? PermissionMode.DEFAULT : permissionMode;
+        String key = key(agent.aid, model.id, mode, workspace.root());
         HarnessAgent existing = cache.get(key);
         if (existing != null) {
             return existing;
@@ -103,7 +113,7 @@ public class AgentRuntimeService {
             if (existing != null) {
                 return existing;
             }
-            HarnessAgent created = build(agent, model, workspace);
+            HarnessAgent created = build(agent, model, workspace, mode);
             cache.put(key, created);
             return created;
         }
@@ -206,7 +216,8 @@ public class AgentRuntimeService {
     private HarnessAgent build(
             DesktopConfigStore.AgentConfig agent,
             DesktopConfigStore.ModelConfig model,
-            Workspace workspace) {
+            Workspace workspace,
+            PermissionMode permissionMode) {
 //        LlmModelConfig modelAdvancedConfig =
 //                MODEL_CONFIG_REGISTRY.getConfig(llmConfig.getUrl(), llmConfig.getModelName());
         ChatModelProperties properties =
@@ -253,7 +264,8 @@ public class AgentRuntimeService {
                     .chatModel(chatModel)
                     .streamingChatModel(streamingChatModel)
                     .chatMemoryProvider(memoryProvider)
-                    .permissionInterruptModule(DesktopPermissionModule.build(agentInterruptStore))
+                    .permissionInterruptModule(
+                            DesktopPermissionModule.build(agentInterruptStore, permissionMode))
                     .agentSettings(
                             AgentSettings.builder().maxSteps(10000).aiCallRetry(3).build())
                     .middleware(new UserMessageAppendMiddleware(appendService, appendEventListener))
@@ -323,7 +335,8 @@ public class AgentRuntimeService {
         return 1000;
     }
 
-    private static String key(String aid, Long modelId, Path workspaceRoot) {
-        return aid + "::" + modelId + "::" + workspaceRoot;
+    private static String key(
+            String aid, Long modelId, PermissionMode permissionMode, Path workspaceRoot) {
+        return aid + "::" + modelId + "::" + permissionMode.name() + "::" + workspaceRoot;
     }
 }

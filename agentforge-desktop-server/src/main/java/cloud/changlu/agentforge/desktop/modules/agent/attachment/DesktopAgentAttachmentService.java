@@ -85,6 +85,7 @@ public class DesktopAgentAttachmentService {
             // 保留带内联资源标记的原始消息，历史回放时可在气泡内还原输入框中的资源位置。
             req.put("rawMessage", body.getMessage());
             req.put("modelId", body.getModelId());
+            req.put("mode", body.getMode());
             req.put("workspaceId", body.getWorkspaceId());
             req.put("projectPath", body.getProjectPath());
         }

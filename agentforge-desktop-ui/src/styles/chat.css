@@ -963,6 +963,76 @@
   min-height: 34px;
 }
 
+.composer-permission-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.composer-permission-btn:hover,
+.composer-permission-btn:focus-visible {
+  background: #f4f5f7;
+  color: #374151;
+}
+
+.composer-permission-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.composer-permission-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.composer-permission-caret {
+  color: #9ca3af;
+  font-size: 10px;
+}
+
+.composer-permission-popover {
+  padding: 0 !important;
+}
+
+.composer-permission-menu {
+  padding: 12px 14px 10px;
+}
+
+.composer-permission-desc {
+  margin: 0 0 10px;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.composer-permission-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #edf0f3;
+  color: #374151;
+  font-size: 13px;
+}
+
 .composer-model-control {
   position: relative;
   display: inline-flex;

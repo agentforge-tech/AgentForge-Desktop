@@ -22,6 +22,7 @@ import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatStopVo;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatStreamRequest;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatTaskSubmitVo;
 import cloud.changlu.agentforge.desktop.modules.chat.event.store.MessageEventFactory;
+import cloud.changlu.agentforge.desktop.modules.chat.governance.DesktopPermissionModule;
 import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptRuntimeRegistry;
 import cloud.changlu.agentforge.desktop.modules.resource.domain.ResolvedResource;
 import cloud.changlu.agentforge.desktop.modules.resource.service.DesktopResourceService;
@@ -144,7 +145,9 @@ public class ChatTaskServiceImpl implements ChatTaskService {
         AgentSessionService.SessionInitResult init = sessionService.initChat(
                 body.getAid().trim(), sessionId, displayMessage, modelId, 1L,
                 binding.getWorkspaceId(), binding.getWorkspacePath(), reqJson);
-        HarnessAgent runtime = runtimeService.getOrCreate(agent, model, binding.getWorkspacePath());
+        HarnessAgent runtime = runtimeService.getOrCreate(
+                agent, model, binding.getWorkspacePath(),
+                DesktopPermissionModule.resolveMode(body.getMode()));
         String executionId = runtimeService.createExecutionId(runtime);
         registerRun(init, runtime, executionId);
 

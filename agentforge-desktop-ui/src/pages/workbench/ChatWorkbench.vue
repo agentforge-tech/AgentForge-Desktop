@@ -268,6 +268,36 @@
                 @pick-files="chooseComposerResources('files')"
                 @pick-folder="chooseComposerResources('folder')"
               />
+              <el-popover
+                v-model="permissionOpen"
+                placement="top-start"
+                width="292"
+                trigger="click"
+                popper-class="composer-permission-popover"
+                :disabled="running"
+              >
+                <div class="composer-permission-menu">
+                  <p class="composer-permission-desc">{{ permissionModeDescription }}</p>
+                  <div class="composer-permission-row">
+                    <span>允许完全访问</span>
+                    <el-switch v-model="permissionBypass" :disabled="running" active-color="#4f46e5" />
+                  </div>
+                </div>
+                <button
+                  slot="reference"
+                  type="button"
+                  class="composer-permission-btn"
+                  :disabled="running"
+                  :title="permissionModeDescription"
+                >
+                  <svg class="composer-permission-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.25" />
+                    <path d="m5.1 8.15 1.9 1.95 3.9-4.1" />
+                  </svg>
+                  <span>{{ permissionModeLabel }}</span>
+                  <i class="el-icon-arrow-down composer-permission-caret"></i>
+                </button>
+              </el-popover>
               <div class="composer-model-control">
                 <div class="composer-model-display" aria-hidden="true">
                   <img v-if="selectedModelLogo" class="composer-selected-model-logo" :src="selectedModelLogo" :alt="selectedModel ? selectedModel.name : '模型'" />
@@ -418,6 +448,8 @@ export default {
     currentAgent: null,
     selectedModelId: null,
     selectedAidSessionModel: null,
+    permissionMode: 1,
+    permissionOpen: false,
     topSessions: [],
     normalSessions: [],
     sessionsLoading: false,
@@ -521,6 +553,22 @@ export default {
       if (!this.running) return '今天帮你做些什么？'
       return this.activeInterrupt ? '请先处理上方确认项' : '输入补充指令，将在下一轮处理…'
     },
+    permissionBypass: {
+      get() {
+        return this.permissionMode === 2
+      },
+      set(value) {
+        this.permissionMode = value ? 2 : 1
+      }
+    },
+    permissionModeLabel() {
+      return this.permissionMode === 2 ? '完全访问' : '默认权限'
+    },
+    permissionModeDescription() {
+      return this.permissionMode === 2
+        ? '当前为完全访问，相关高危操作将不再请求你的确认。'
+        : '当前为默认权限，相关高危操作超过范围会请求你的确认。'
+    },
     primaryActionTitle() {
       if (this.stopping) return '停止中…'
       if (this.running && (this.draft.trim() || this.composerResources.length)) return '发送补充指令'
@@ -557,6 +605,9 @@ export default {
       this.watchModelSelection(value)
     },
     draft() {
+      this.scheduleSessionContextUpdate()
+    },
+    permissionMode() {
       this.scheduleSessionContextUpdate()
     },
     composerResources: {
@@ -770,6 +821,8 @@ export default {
       this.sessionTitle = ''
       this.selectedAidSessionModel = null
       this.selectedWorkspaceId = null
+      this.permissionMode = 1
+      this.permissionOpen = false
       this.messages = []
       this.draft = ''
       this.composerResources = []
@@ -917,6 +970,7 @@ export default {
       const workspace = this.workspaces.find((item) => item.id === this.selectedWorkspaceId)
       return {
         modelId: this.selectedModelId,
+        mode: this.permissionMode,
         message: this.draft || '',
         projectPath: workspace ? workspace.folderPath : '',
         files: this.composerResources.map((item) => ({
@@ -958,6 +1012,7 @@ export default {
       const data = context && typeof context === 'object' ? context : null
       const modelId = data && data.modelId != null ? data.modelId : item.modelId
       this.selectedAidSessionModel = modelId == null ? null : Number(modelId)
+      this.permissionMode = data && Number(data.mode) === 2 ? 2 : 1
 
       if (data && typeof data.projectPath === 'string') {
         const path = data.projectPath.trim()
@@ -1226,6 +1281,7 @@ export default {
       this.running = true
       const controller = new AbortController()
       this.controller = controller
+      this.permissionOpen = false
       this.resetScrollFollow()
       this.scroll()
       try {
@@ -1234,6 +1290,7 @@ export default {
           sessionId: this.sessionId,
           message: text,
           modelId: this.selectedModelId,
+          mode: this.permissionMode,
           workspaceId: this.selectedWorkspaceId,
           projectPath: null,
           files: resources.map((item) => ({
