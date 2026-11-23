@@ -21,12 +21,14 @@ Most agent frameworks assume a server, a database, and a developer on call. Agen
 
 ## Features
 
-- **Workbench** — session history, pinned/renamed/deleted conversations, and a detail pane with markdown, highlighted code blocks, and one-click copy.
+- **Workbench** — session history, pinned/renamed/deleted conversations, workspace groups with one-click new chats, and a detail pane with markdown, highlighted code blocks, and one-click copy.
 - **Taskized streaming & reconnect** — submit/stream/stop/resume tasks over SSE with persisted event sequences and `lastEventSeq` resume; historical messages replay from stored events.
 - **Local resources & multimodal** — insert local images, files, and folders inline in the composer at the cursor; resources keep their position in sent and replayed messages. Images are routed to vision-capable models, text files are read into context, and the agent can proactively read paths or folders with the `read_resource` tool.
-- **Workspace selection** — bind a local project folder per conversation; the selector moves above the composer for existing workspace sessions and stays hidden for non-workspace sessions.
+- **Workspace selection** — bind a local project folder per conversation; import folders by pasting a full path (quoted paths, `file://` and `~/` are supported, with clipboard auto-fill), and start a new chat directly from a workspace group header. The selector moves above the composer for existing workspace sessions and stays hidden for non-workspace sessions.
 - **Skills** — global and workspace Skill discovery, a lightweight `skill` tool, and a management page for importing folders or ZIP archives.
 - **Human-in-the-loop** — built-in `ask_user` questions plus approval prompts for high-risk bash commands such as `rm`; interrupted tool batches resume from the same message. Frozen snapshots are persisted in SQLite (`ai_agent_interrupt_snapshot`) for audit and runtime rebuilds.
+- **Permission modes** — switch between default approvals and full access from the composer. The choice is sent as `mode`, mapped to `PermissionMode.DEFAULT` / `BYPASS`, isolated in the runtime cache, and persisted per session.
+- **Session context restore** — the composer keeps each session's draft, selected model, workspace, attached resources, and permission mode; reopening a conversation restores the last input state.
 - **In-run instructions** — append extra guidance while the agent is running; queued instructions are injected at the next model boundary and deferred ones return to the composer.
 - **Model management** — CRUD, connectivity checks, Function Call tests, explicit vision capability, and per-agent model allowlists/defaults.
 - **Agent configuration** — model set, default model, memory window, and a read-only preview of the composed built-in system prompt. Saved changes take effect immediately.
@@ -183,3 +185,4 @@ The embedded migrator applies versioned SQL automatically at startup, records ea
 - [Packaging for all three targets](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/快捷一键打包-三端适配实现详解.md)
 - [Unified logging](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/AgentForge-Desktop日志统一管控详解.md)
 - [Startup initialization and SQLite migrations](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/安装后启动初始化与SQLite增量SQL迁移详解.md)
+- [Troubleshooting: stale JVM proxy failures](docs/桌面版agent工作台设计实现/异常问题记录/01、代理关闭后Java进程全部模型请求失败：JVM代理启动时固化导致SOCKS连接拒绝.md)
