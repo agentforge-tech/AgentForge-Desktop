@@ -22,11 +22,13 @@ Most agent frameworks assume a server, a database, and a developer on call. Agen
 ## Features
 
 - **Workbench** — session history, pinned/renamed/deleted conversations, and a detail pane with markdown, highlighted code blocks, and one-click copy.
-- **Streaming chat** — `session / think / resp / tool_call / resp_end / error` events over SSE, plus replay of persisted events for historical messages.
-- **Workspace selection** — pick a local project folder per conversation; the agent runs against that workspace with environment-aware built-in instructions.
+- **Taskized streaming & reconnect** — submit/stream/stop/resume tasks over SSE with persisted event sequences and `lastEventSeq` resume; historical messages replay from stored events.
+- **Local resources & multimodal** — insert local images, files, and folders inline in the composer at the cursor; resources keep their position in sent and replayed messages. Images are routed to vision-capable models, text files are read into context, and the agent can proactively read paths or folders with the `read_resource` tool.
+- **Workspace selection** — bind a local project folder per conversation; the selector moves above the composer for existing workspace sessions and stays hidden for non-workspace sessions.
+- **Skills** — global and workspace Skill discovery, a lightweight `skill` tool, and a management page for importing folders or ZIP archives.
 - **Human-in-the-loop** — built-in `ask_user` questions plus approval prompts for high-risk bash commands such as `rm`; interrupted tool batches resume from the same message. Frozen snapshots are persisted in SQLite (`ai_agent_interrupt_snapshot`) for audit and runtime rebuilds.
 - **In-run instructions** — append extra guidance while the agent is running; queued instructions are injected at the next model boundary and deferred ones return to the composer.
-- **Model management** — CRUD, connectivity checks, Function Call tests, and per-agent model allowlists/defaults.
+- **Model management** — CRUD, connectivity checks, Function Call tests, explicit vision capability, and per-agent model allowlists/defaults.
 - **Agent configuration** — model set, default model, memory window, and a read-only preview of the composed built-in system prompt. Saved changes take effect immediately.
 - **Dual render modes** — debug and polished modes for inspecting raw reasoning versus reading the final answer.
 - **Hot reload** — editing `conf/config.json` or `conf/models.json` by hand is picked up automatically.
@@ -52,7 +54,7 @@ Most agent frameworks assume a server, a database, and a developer on call. Agen
 ┌───────────────────────────────▼──────────────────────────────┐
 │ agentforge-desktop-server (Spring Boot 2.7 / Java 8)         │
 │  · ChatController / Session / Message / Model / Agent APIs   │
-│  · HarnessAgent + LocalRuntime, middleware, SSE protocol     │
+│  · HarnessAgent + LocalRuntime, resource pipeline, SSE       │
 │  · DesktopConfigStore + SQLite schema migrator               │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -174,6 +176,8 @@ The embedded migrator applies versioned SQL automatically at startup, records ea
 ## Documentation
 
 - [Design and implementation notes](docs/桌面版agent工作台设计实现/README.md)
+- [Local resources and multimodal capabilities](docs/桌面版agent工作台设计实现/核心后端服务设计/文件上传与模态识别能力/AgentForge-Desktop本地资源输入与模态识别实现.md)
+- [Changelog](CHANGELOG.md)
 - [Local development and verification commands](docs/桌面版agent工作台设计实现/快捷命令与联调验证.md)
 - [Embedded desktop startup guide](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/桌面端内置启动-desktop-dev-embedded.md)
 - [Packaging for all three targets](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/快捷一键打包-三端适配实现详解.md)
