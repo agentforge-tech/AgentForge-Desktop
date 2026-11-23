@@ -13,6 +13,7 @@ public class SessionMessageVo {
     private Long modelId;
     private String contentText;
     private String events;
+    private String req;
     private String createTime;
     private String modifyTime;
 
@@ -40,6 +41,8 @@ public class SessionMessageVo {
     public void setContentText(String contentText) { this.contentText = contentText; }
     public String getEvents() { return events; }
     public void setEvents(String events) { this.events = events; }
+    public String getReq() { return req; }
+    public void setReq(String req) { this.req = req; }
     public String getCreateTime() { return createTime; }
     public void setCreateTime(String createTime) { this.createTime = createTime; }
     public String getModifyTime() { return modifyTime; }

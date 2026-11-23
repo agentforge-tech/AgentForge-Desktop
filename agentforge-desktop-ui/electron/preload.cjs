@@ -14,6 +14,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   chooseSkillZip(currentPath) {
     return ipcRenderer.invoke('local-agent:choose-skill-zip', currentPath)
   },
+  chooseResources(currentPath) {
+    return ipcRenderer.invoke('local-agent:choose-resources', currentPath)
+  },
+  chooseResourceFiles(currentPath) {
+    return ipcRenderer.invoke('local-agent:choose-resource-files', currentPath)
+  },
+  chooseResourceFolder(currentPath) {
+    return ipcRenderer.invoke('local-agent:choose-resource-folder', currentPath)
+  },
+  readClipboardResources() {
+    return ipcRenderer.invoke('local-agent:read-clipboard-resources')
+  },
   getPathForFile(file) {
     return webUtils.getPathForFile(file)
   },

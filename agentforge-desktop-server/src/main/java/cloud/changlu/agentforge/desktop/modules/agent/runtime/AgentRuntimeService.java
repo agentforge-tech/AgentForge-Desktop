@@ -10,15 +10,18 @@ import cloud.changlu.agentforge.agent.extend.middlewares.LoggingIAgentMiddleware
 import cloud.changlu.agentforge.agent.extend.middlewares.append.UserMessageAppendMiddleware;
 import cloud.changlu.agentforge.agent.extend.middlewares.append.event.UserMessageAppendEventListener;
 import cloud.changlu.agentforge.agent.extend.middlewares.append.service.IUserMessageAppendService;
+import cloud.changlu.agentforge.agent.extend.middlewares.read.middleware.ReadArtifactMiddleware;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptBatchResumeCommand;
 import cloud.changlu.agentforge.agent.governance.interrupt.spi.AgentInterruptStore;
 import cloud.changlu.agentforge.agent.stream.TokenStream;
 import cloud.changlu.agentforge.desktop.config.DesktopProperties;
 import cloud.changlu.agentforge.desktop.config.DesktopAgentPrompt;
+import cloud.changlu.agentforge.desktop.modules.agent.attachment.DesktopModelCapabilities;
 import cloud.changlu.agentforge.desktop.modules.chat.governance.DesktopPermissionModule;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreamingMiddleware;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.SessionLifecycleMiddleware;
 import cloud.changlu.agentforge.desktop.modules.skill.api.SkillLoader;
+import cloud.changlu.agentforge.desktop.modules.resource.read.DesktopReadResourceTool;
 import cloud.changlu.agentforge.desktop.modules.skill.tool.DesktopSkillTool;
 import cloud.changlu.agentforge.desktop.store.DesktopConfigStore;
 import cloud.changlu.agentforge.desktop.store.SqliteChatMemoryStore;
@@ -54,6 +57,7 @@ public class AgentRuntimeService {
     private final UserMessageAppendEventListener appendEventListener;
     private final AgentInterruptStore agentInterruptStore;
     private final SkillLoader skillLoader;
+    private final DesktopModelCapabilities modelCapabilities;
     private static final LlmModelConfigRegistryApi MODEL_CONFIG_REGISTRY =
             LlmModelConfigRegistry.registry();
 
@@ -69,7 +73,8 @@ public class AgentRuntimeService {
             IUserMessageAppendService appendService,
             UserMessageAppendEventListener appendEventListener,
             AgentInterruptStore agentInterruptStore,
-            SkillLoader skillLoader) {
+            SkillLoader skillLoader,
+            DesktopModelCapabilities modelCapabilities) {
         this.configStore = configStore;
         this.properties = properties;
         this.memoryStore = memoryStore;
@@ -79,6 +84,7 @@ public class AgentRuntimeService {
         this.appendEventListener = appendEventListener;
         this.agentInterruptStore = agentInterruptStore;
         this.skillLoader = skillLoader;
+        this.modelCapabilities = modelCapabilities;
     }
 
     public HarnessAgent getOrCreate(
@@ -232,10 +238,16 @@ public class AgentRuntimeService {
                         .build())
                 .workspace(workspace).build();
         String systemPrompt = DesktopAgentPrompt.render(null, skillLoader.loadSkillIndex(workspace.root()));
+        ReadArtifactMiddleware readArtifactMiddleware =
+                ReadArtifactMiddleware.builder()
+                        .supportsImage(modelCapabilities.supportsImage(model))
+                        .requiresInlineImage(modelCapabilities.requiresInlineImage(model))
+                        .build();
         try {
             return HarnessAgent.builder()
                     .runtime(runtime)
                     .additionalTool(new DesktopSkillTool(skillLoader, workspace.root()))
+                    .additionalTool(new DesktopReadResourceTool())
                     .agentName(agent.name)
                     .systemPrompt(systemPrompt)
                     .chatModel(chatModel)
@@ -245,6 +257,7 @@ public class AgentRuntimeService {
                     .agentSettings(
                             AgentSettings.builder().maxSteps(10000).aiCallRetry(3).build())
                     .middleware(new UserMessageAppendMiddleware(appendService, appendEventListener))
+                    .middleware(readArtifactMiddleware)
                     .middleware(new LoggingIAgentMiddleware())
                     .middleware(streamingMiddleware)
                     .middleware(sessionLifecycleMiddleware)

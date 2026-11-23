@@ -1,5 +1,6 @@
 package cloud.changlu.agentforge.desktop.modules.chat.service;
 
+import cloud.changlu.agentforge.agent.domain.AgentAttachment;
 import cloud.changlu.agentforge.agent.domain.AgentRequest;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.ApprovalAction;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptBatchResumeCommand;
@@ -10,6 +11,8 @@ import cloud.changlu.agentforge.agent.governance.tool.askuser.AskUserAnswer;
 import cloud.changlu.agentforge.agent.governance.tool.askuser.AskUserResponse;
 import cloud.changlu.agentforge.agent.governance.tool.askuser.AskUserSupport;
 import cloud.changlu.agentforge.desktop.config.DesktopProperties;
+import cloud.changlu.agentforge.desktop.modules.agent.attachment.DesktopAgentAttachmentService;
+import cloud.changlu.agentforge.desktop.modules.agent.attachment.DesktopModelCapabilities;
 import cloud.changlu.agentforge.desktop.modules.agent.runtime.AgentRuntimeService;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.AgentInterruptResponseReq;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.AgentInterruptResumeReq;
@@ -20,6 +23,8 @@ import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatStreamRequest;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatTaskSubmitVo;
 import cloud.changlu.agentforge.desktop.modules.chat.event.store.MessageEventFactory;
 import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptRuntimeRegistry;
+import cloud.changlu.agentforge.desktop.modules.resource.domain.ResolvedResource;
+import cloud.changlu.agentforge.desktop.modules.resource.service.DesktopResourceService;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreamingMiddleware;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.SessionLifecycleMiddleware;
 import cloud.changlu.agentforge.desktop.modules.session.dao.AgentSessionMapper;
@@ -67,6 +72,9 @@ public class ChatTaskServiceImpl implements ChatTaskService {
     private final AgentSessionMapper sessionMapper;
     private final DesktopProperties properties;
     private final WorkspaceBindingService workspaceBindingService;
+    private final DesktopResourceService resourceService;
+    private final DesktopAgentAttachmentService attachmentService;
+    private final DesktopModelCapabilities modelCapabilities;
     private final Executor executor;
     private final Map<Long, Runnable> activeStops = new ConcurrentHashMap<Long, Runnable>();
 
@@ -83,6 +91,9 @@ public class ChatTaskServiceImpl implements ChatTaskService {
             AgentSessionMapper sessionMapper,
             DesktopProperties properties,
             WorkspaceBindingService workspaceBindingService,
+            DesktopResourceService resourceService,
+            DesktopAgentAttachmentService attachmentService,
+            DesktopModelCapabilities modelCapabilities,
             @Qualifier("chatTaskExecutor") Executor executor) {
         this.configStore = configStore;
         this.sessionService = sessionService;
@@ -96,6 +107,9 @@ public class ChatTaskServiceImpl implements ChatTaskService {
         this.sessionMapper = sessionMapper;
         this.properties = properties;
         this.workspaceBindingService = workspaceBindingService;
+        this.resourceService = resourceService;
+        this.attachmentService = attachmentService;
+        this.modelCapabilities = modelCapabilities;
         this.executor = executor;
     }
 
@@ -113,19 +127,29 @@ public class ChatTaskServiceImpl implements ChatTaskService {
             throw new IllegalArgumentException("模型不存在或已被删除: " + modelId);
         }
 
+        List<ResolvedResource> resources = resourceService.resolve(body.getFiles());
+        String displayMessage = resourceService.displayText(body.getMessage());
+        if (displayMessage.isEmpty() && !resources.isEmpty()) {
+            displayMessage = "请处理我提供的本地资源。";
+        }
+        String question = resourceService.buildAgentQuestion(body.getMessage(), resources);
+        String reqJson = attachmentService.buildUserReqJson(body, resources, displayMessage);
+        List<AgentAttachment> attachments = attachmentService.toAgentAttachments(
+                resources, modelCapabilities.supportsImage(model), modelCapabilities.providerCode(model));
+
         String sessionId = body.getSessionId() == null || body.getSessionId().trim().isEmpty()
                 ? UUID.randomUUID().toString() : body.getSessionId().trim();
         WorkspaceBindingService.Binding binding = workspaceBindingService.prepare(
                 body.getAid().trim(), sessionId, body.getWorkspaceId(), body.getProjectPath());
         AgentSessionService.SessionInitResult init = sessionService.initChat(
-                body.getAid().trim(), sessionId, body.getMessage().trim(), modelId, 1L,
-                binding.getWorkspaceId(), binding.getWorkspacePath());
+                body.getAid().trim(), sessionId, displayMessage, modelId, 1L,
+                binding.getWorkspaceId(), binding.getWorkspacePath(), reqJson);
         HarnessAgent runtime = runtimeService.getOrCreate(agent, model, binding.getWorkspacePath());
         String executionId = runtimeService.createExecutionId(runtime);
         registerRun(init, runtime, executionId);
 
         try {
-            executor.execute(() -> start(runtime, init, body.getMessage().trim(), executionId));
+            executor.execute(() -> start(runtime, init, question, executionId, attachments));
         } catch (RuntimeException e) {
             activeStops.remove(init.getAiMessageId());
             streamingMiddleware.onError(init.getSessionId(), e);
@@ -213,7 +237,8 @@ public class ChatTaskServiceImpl implements ChatTaskService {
             HarnessAgent runtime,
             AgentSessionService.SessionInitResult init,
             String question,
-            String executionId) {
+            String executionId,
+            List<AgentAttachment> attachments) {
         Map<String, Object> extensions = new java.util.HashMap<String, Object>();
         extensions.put(SessionLifecycleMiddleware.EXT_SESSION_ID, init.getSessionId());
         extensions.put(SessionLifecycleMiddleware.EXT_AI_MESSAGE_ID, init.getAiMessageId());
@@ -222,6 +247,7 @@ public class ChatTaskServiceImpl implements ChatTaskService {
                 .memoryId(init.getSessionId())
                 .executionId(executionId)
                 .question(question)
+                .attachments(attachments)
                 .extensions(extensions)
                 .build();
         try {
@@ -366,8 +392,9 @@ public class ChatTaskServiceImpl implements ChatTaskService {
         if (request == null || request.getAid() == null || request.getAid().trim().isEmpty()) {
             throw new IllegalArgumentException("aid 不能为空");
         }
-        if (request.getMessage() == null || request.getMessage().trim().isEmpty()) {
-            throw new IllegalArgumentException("对话内容不能为空");
+        boolean hasMessage = request.getMessage() != null && !request.getMessage().trim().isEmpty();
+        if (!hasMessage && !request.hasFiles()) {
+            throw new IllegalArgumentException("对话内容或资源不能同时为空");
         }
     }
 

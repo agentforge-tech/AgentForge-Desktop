@@ -41,6 +41,14 @@ public class AgentSessionService {
     public SessionInitResult initChat(
             String aid, String sessionId, String message, Long modelId, Long userId,
             Long workspaceId, String workspacePath) {
+        return initChat(
+                aid, sessionId, message, modelId, userId, workspaceId, workspacePath, null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public SessionInitResult initChat(
+            String aid, String sessionId, String message, Long modelId, Long userId,
+            Long workspaceId, String workspacePath, String reqJson) {
         if (aid == null || aid.trim().isEmpty()) {
             throw new IllegalArgumentException("aid 不能为空");
         }
@@ -96,6 +104,7 @@ public class AgentSessionService {
         userMessage.setRoleType(SessionMessageRoleEnum.USER.getCode());
         userMessage.setStatus(SessionMessageStatusEnum.SUCCEEDED.getCode());
         userMessage.setContent(trimmedMessage);
+        userMessage.setReq(reqJson);
         userMessage.setCreateUserId(user);
         userMessage.setIsDeleted(0);
         userMessage.setCreateTime(now);
@@ -236,6 +245,7 @@ public class AgentSessionService {
         vo.setModelId(message.getModelId());
         vo.setContentText(message.getContent());
         vo.setEvents(message.getEvents());
+        vo.setReq(message.getReq());
         vo.setCreateTime(message.getCreateTime());
         vo.setModifyTime(message.getModifyTime());
         return vo;

@@ -8,6 +8,7 @@ public class ModelConfigUpsertReq {
     private String modelName;
     private String url;
     private String apiKey;
+    private Boolean supportsImage;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -23,4 +24,6 @@ public class ModelConfigUpsertReq {
     public void setUrl(String url) { this.url = url; }
     public String getApiKey() { return apiKey; }
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+    public Boolean getSupportsImage() { return supportsImage; }
+    public void setSupportsImage(Boolean supportsImage) { this.supportsImage = supportsImage; }
 }

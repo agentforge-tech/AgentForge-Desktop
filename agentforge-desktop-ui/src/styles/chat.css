@@ -661,7 +661,7 @@
 }
 
 .chat-inner {
-  max-width: 860px;
+  max-width: 760px;
   margin: 0 auto;
   padding: 0 24px;
   display: flex;
@@ -891,7 +891,7 @@
 
 .composer {
   position: relative;
-  max-width: 860px;
+  max-width: 760px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -1152,7 +1152,7 @@
 }
 
 .composer-tip {
-  max-width: 860px;
+  max-width: 760px;
   margin: 6px auto 0;
   padding-bottom: 8px;
   color: #9ca3af;
@@ -1458,14 +1458,14 @@
 /* ------------------------------ HITL / 追加指令 ------------------------------ */
 .composer-wrap > .desktop-composer-interrupt.interrupt-card {
   width: 100%;
-  max-width: 860px;
+  max-width: 760px;
   margin: 0 auto 8px;
   box-sizing: border-box;
 }
 
 .append-queue {
   width: 100%;
-  max-width: 860px;
+  max-width: 760px;
   max-height: 132px;
   overflow-y: auto;
   display: flex;
@@ -1607,4 +1607,133 @@
 
 .conversation-stage:not(.has-messages) .desktop-composer-interrupt {
   width: 100%;
+}
+
+.composer .composer-input-shell {
+  width: 100%;
+}
+
+.conversation-stage:not(.has-messages) .composer .composer-input-shell {
+  min-height: 66px;
+}
+
+.composer-surface {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0;
+  background: transparent;
+  border-radius: 18px;
+}
+
+.composer-surface .composer,
+.conversation-stage:not(.has-messages) .composer-surface .composer {
+  position: relative;
+  z-index: 1;
+  order: 1;
+  max-width: none;
+  margin: 0;
+  border: 1px solid #e7e9ed;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  background: #fff;
+}
+
+.composer-workspace-row {
+  position: relative;
+  z-index: 0;
+  order: 2;
+  display: flex;
+  align-items: center;
+  margin: -16px 0 0;
+  padding: 22px 12px 7px;
+  background: #f2f3f5;
+  border-radius: 0 0 16px 16px;
+}
+
+.composer-surface.is-history .composer {
+  order: 2;
+}
+
+.composer-surface.is-history .composer-workspace-row {
+  order: 1;
+  margin: 0 0 -16px;
+  padding: 7px 12px 22px;
+  border-radius: 16px 16px 0 0;
+}
+
+.composer-workspace-row .workspace-picker-shell {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.composer-workspace-row .workspace-picker {
+  padding: 3px 4px;
+  color: #8a929e;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.composer-workspace-row .workspace-picker:hover {
+  color: #4f46e5;
+  background: #eef0ff;
+}
+
+.composer-add-btn {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: #7a8494;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.composer-add-btn:hover {
+  color: #4f46e5;
+  background: #f3f4ff;
+}
+
+.composer-add-btn:active {
+  background: #e9ebff;
+}
+
+.composer-add-btn:disabled {
+  color: #c0c5ce;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.composer-add-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+}
+
+.agent-debug-user-resources {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.agent-debug-user-resources .composer-resource-chip {
+  margin: 0;
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(122, 166, 225, 0.32);
 }

@@ -5,12 +5,15 @@ import cloud.changlu.agentforge.agent.extend.middlewares.append.domain.UserMessa
 import cloud.changlu.agentforge.agent.extend.middlewares.append.event.UserMessageAppendEventListener;
 import cloud.changlu.agentforge.agent.extend.middlewares.append.service.IUserMessageAppendService;
 import cloud.changlu.agentforge.desktop.modules.session.dao.AgentSessionMapper;
+import cloud.changlu.agentforge.desktop.modules.resource.domain.ResourceRef;
+import cloud.changlu.agentforge.desktop.modules.resource.service.DesktopResourceService;
 import cloud.changlu.agentforge.desktop.modules.session.domain.AgentSessionPojo;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Optional;
 
 /** 当前 Run 的用户消息追加与取消入口。 */
@@ -21,14 +24,17 @@ public class UserMessageAppendController {
     private final AgentSessionMapper sessionMapper;
     private final IUserMessageAppendService appendService;
     private final UserMessageAppendEventListener eventListener;
+    private final DesktopResourceService resourceService;
 
     public UserMessageAppendController(
             AgentSessionMapper sessionMapper,
             IUserMessageAppendService appendService,
-            UserMessageAppendEventListener eventListener) {
+            UserMessageAppendEventListener eventListener,
+            DesktopResourceService resourceService) {
         this.sessionMapper = sessionMapper;
         this.appendService = appendService;
         this.eventListener = eventListener;
+        this.resourceService = resourceService;
     }
 
     @PostMapping
@@ -36,8 +42,13 @@ public class UserMessageAppendController {
         if (!validSession(request)) {
             return AppendResponse.rejected("SESSION_NOT_FOUND");
         }
+        String content = resourceService.buildAppendContent(
+                request.getMessage(), request.getFiles());
+        if (content.isEmpty()) {
+            return AppendResponse.rejected("INVALID_ARGUMENT");
+        }
         UserMessageAppendResult result =
-                appendService.append(request.getSessionId(), request.getMessage());
+                appendService.append(request.getSessionId(), content);
         if (!result.isQueued()) {
             return AppendResponse.rejected(result.getCode().name());
         }
@@ -92,6 +103,7 @@ public class UserMessageAppendController {
 
     public static final class AppendRequest extends BaseRequest {
         private String message;
+        private List<ResourceRef> files;
 
         public String getMessage() {
             return message;
@@ -99,6 +111,14 @@ public class UserMessageAppendController {
 
         public void setMessage(String message) {
             this.message = message;
+        }
+
+        public List<ResourceRef> getFiles() {
+            return files;
+        }
+
+        public void setFiles(List<ResourceRef> files) {
+            this.files = files;
         }
     }
 

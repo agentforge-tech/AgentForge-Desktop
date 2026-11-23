@@ -23,8 +23,8 @@ public interface AgentSessionMessageMapper {
             + " AND status IN(1,2,7,8) ORDER BY seq_num DESC LIMIT 1")
     AgentSessionMessagePojo selectActiveAiMessage(@Param("sessionId") Long sessionId);
 
-    @Insert("INSERT INTO ai_agent_session_message(session_id,seq_num,role_type,status,started_at,finished_at,elapsed_ms,model_id,content,events,create_user_id,is_deleted,create_time,modify_time)"
-            + " VALUES(#{sessionId},#{seqNum},#{roleType},#{status},#{startedAt},#{finishedAt},#{elapsedMs},#{modelId},#{content},#{events},#{createUserId},#{isDeleted},#{createTime},#{modifyTime})")
+    @Insert("INSERT INTO ai_agent_session_message(session_id,seq_num,role_type,status,started_at,finished_at,elapsed_ms,model_id,content,events,req,create_user_id,is_deleted,create_time,modify_time)"
+            + " VALUES(#{sessionId},#{seqNum},#{roleType},#{status},#{startedAt},#{finishedAt},#{elapsedMs},#{modelId},#{content},#{events},#{req},#{createUserId},#{isDeleted},#{createTime},#{modifyTime})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(AgentSessionMessagePojo pojo);
 

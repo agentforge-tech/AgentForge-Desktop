@@ -8,6 +8,7 @@ public class ModelConfigVo {
     private String modelName;
     private String url;
     private String apiKey;
+    private Boolean supportsImage;
     private String createTime;
     private String modifyTime;
 
@@ -25,6 +26,8 @@ public class ModelConfigVo {
     public void setUrl(String url) { this.url = url; }
     public String getApiKey() { return apiKey; }
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+    public Boolean getSupportsImage() { return supportsImage; }
+    public void setSupportsImage(Boolean supportsImage) { this.supportsImage = supportsImage; }
     public String getCreateTime() { return createTime; }
     public void setCreateTime(String createTime) { this.createTime = createTime; }
     public String getModifyTime() { return modifyTime; }

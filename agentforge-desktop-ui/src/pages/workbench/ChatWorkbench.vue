@@ -173,7 +173,14 @@
           <template v-for="(message, index) in messages">
             <div v-if="message.role === 'user'" :key="'u-' + index" class="agent-debug-message-row agent-debug-message-row--user">
               <div class="agent-debug-user-block">
-                <div class="agent-debug-user-bubble">{{ message.text }}</div>
+                <div class="agent-debug-user-bubble">
+                  <UserMessageContent
+                    :text="message.text"
+                    :raw-text="message.rawText"
+                    :resources="message.resources"
+                    @preview="previewComposerResource"
+                  />
+                </div>
                 <div class="agent-debug-message-actions">
                   <button class="agent-debug-mini-btn" type="button" title="复制" @click="copy(message.text)">
                     <i class="el-icon-document-copy"></i>
@@ -227,26 +234,26 @@
             compact
             @submit="submitInterrupt"
           />
-          <div class="composer">
-            <textarea
+          <div class="composer-surface" :class="{ 'is-history': hasComposerHistory }">
+          <div class="composer" @dragover.prevent @drop.prevent="handleComposerDrop">
+            <ComposerInput
               ref="composerInput"
-              v-model="draft"
-              rows="1"
+              :value="draft"
               :disabled="!canChat || !!activeInterrupt"
               :placeholder="composerPlaceholder"
-              @input="autoGrow"
-              @compositionstart="composing = true"
-              @compositionend="composing = false"
-              @keydown.enter="onEnter"
-            ></textarea>
+              :resources="composerResources"
+              @input="onComposerInput"
+              @enter="onEnter"
+              @remove-resource="removeComposerResource"
+              @preview-resource="previewComposerResource"
+              @paste-files="handleComposerPaste"
+            />
             <div class="composer-toolbar">
-              <WorkspacePicker
-                :workspaces="workspaces"
-                :selected-id="selectedWorkspaceId"
-                :locked="!!sessionId"
-                @select="selectWorkspace"
-                @clear="clearWorkspace"
-                @created="onWorkspaceCreated"
+              <ComposerAddMenu
+                :disabled="!canChat"
+                @capture-selection="rememberComposerSelection"
+                @pick-files="chooseComposerResources('files')"
+                @pick-folder="chooseComposerResources('folder')"
               />
               <div class="composer-model-control">
                 <div class="composer-model-display" aria-hidden="true">
@@ -287,16 +294,27 @@
             </div>
             <button
               class="send-btn"
-              :class="{ stop: running && !draft.trim() }"
-              :disabled="!canChat || !!activeInterrupt || (!running && !draft.trim())"
+              :class="{ stop: running && !draft.trim() && !composerResources.length }"
+              :disabled="!canChat || !!activeInterrupt || (!running && !draft.trim() && !composerResources.length)"
               :title="primaryActionTitle"
               @click="onPrimaryAction"
             >
-              <svg v-if="!running || draft.trim()" class="send-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <svg v-if="!running || draft.trim() || composerResources.length" class="send-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 19V5M5 12l7-7 7 7" />
               </svg>
               <span v-else class="stop-square"></span>
             </button>
+          </div>
+          <div v-if="showComposerWorkspace" class="composer-workspace-row">
+            <WorkspacePicker
+              :workspaces="workspaces"
+              :selected-id="selectedWorkspaceId"
+              :locked="!!sessionId"
+              @select="selectWorkspace"
+              @clear="clearWorkspace"
+              @created="onWorkspaceCreated"
+            />
+          </div>
           </div>
         </div>
         <div class="composer-tip">
@@ -322,6 +340,10 @@ import ConfigDrawer from '../../components/ConfigDrawer.vue'
 import InterruptCard from '../../components/InterruptCard.vue'
 import WorkspacePicker from '../../components/WorkspacePicker.vue'
 import SkillManager from '../../components/SkillManager.vue'
+import ComposerInput from '../../components/ComposerInput.vue'
+import ComposerAddMenu from '../../components/ComposerAddMenu.vue'
+import ComposerResourceChip from '../../components/ComposerResourceChip.vue'
+import UserMessageContent from '../../components/UserMessageContent.vue'
 import chatAutoScroll from '../../utils/chatAutoScroll'
 import { fetchAgents, upsertAgent } from '../../api/agent'
 import { fetchModels } from '../../api/model'
@@ -371,7 +393,7 @@ function parseSessionDate(item) {
 
 export default {
   name: 'ChatWorkbench',
-  components: { AgentMessageContent, ConfigDrawer, InterruptCard, WorkspacePicker, SkillManager },
+  components: { AgentMessageContent, ConfigDrawer, InterruptCard, WorkspacePicker, SkillManager, ComposerInput, ComposerAddMenu, ComposerResourceChip, UserMessageContent },
   mixins: [chatAutoScroll],
   data: () => ({
     brandLogo: agentLogo,
@@ -389,6 +411,7 @@ export default {
     sessionTitle: '',
     messages: [],
     draft: '',
+    composerResources: [],
     running: false,
     stopping: false,
     controller: null,
@@ -467,6 +490,14 @@ export default {
         sessions: [...this.topSessions, ...this.normalSessions].filter((item) => item.workspaceId === workspace.id)
       }))
     },
+    hasComposerHistory() {
+      return this.messages.length > 0
+    },
+    showComposerWorkspace() {
+      // 新建会话始终展示，方便选择工作空间；已有会话仅在工作空间会话中保留。
+      if (!this.hasComposerHistory) return true
+      return this.selectedWorkspaceId != null
+    },
     composerPlaceholder() {
       if (!this.canChat) return '请先创建 Agent'
       if (!this.running) return '今天帮你做些什么？'
@@ -474,7 +505,7 @@ export default {
     },
     primaryActionTitle() {
       if (this.stopping) return '停止中…'
-      if (this.running && this.draft.trim()) return '发送补充指令'
+      if (this.running && (this.draft.trim() || this.composerResources.length)) return '发送补充指令'
       if (this.running) return '停止'
       return '发送'
     },
@@ -693,6 +724,7 @@ export default {
       this.selectedWorkspaceId = null
       this.messages = []
       this.draft = ''
+      this.composerResources = []
       this.pendingAppends = []
       this.deferredAppends = []
       this.running = false
@@ -785,18 +817,14 @@ export default {
       }
     },
     autoGrow() {
-      const el = this.$refs.composerInput
-      if (!el) return
-      el.style.height = 'auto'
-      const height = el.scrollHeight
-      el.style.height = Math.min(height, COMPOSER_MAX_HEIGHT) + 'px'
-      el.style.overflowY = height > COMPOSER_MAX_HEIGHT ? 'auto' : 'hidden'
+      const editor = this.$refs.composerInput
+      if (editor && editor.resizeShell) editor.resizeShell()
     },
-    onEnter(event) {
-      if (this.composing || event.isComposing || event.keyCode === 229) return
-      if (event.shiftKey) return
-      event.preventDefault()
-      if (this.running && this.draft.trim()) {
+    onComposerInput(value) {
+      this.draft = value
+    },
+    onEnter() {
+      if (this.running && (this.draft.trim() || this.composerResources.length)) {
         this.sendAppend()
         return
       }
@@ -804,7 +832,7 @@ export default {
     },
     onPrimaryAction() {
       if (this.stopping) return
-      if (this.running && !this.draft.trim()) {
+      if (this.running && !this.draft.trim() && !this.composerResources.length) {
         this.stop()
         return
       }
@@ -813,6 +841,150 @@ export default {
         return
       }
       this.send()
+    },
+    resourceMarker(resource) {
+      const type = resource.type || this.resourceType(resource)
+      return `[[agentforge-resource:${type}:${encodeURIComponent(resource.path)}]]`
+    },
+    resourceType(resource) {
+      if (resource.type) return resource.type
+      const name = String(resource.name || resource.path || '').toLowerCase()
+      if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name)) return 'image'
+      if (/\.pdf$/.test(name)) return 'pdf'
+      if (/\.(html?|mhtml)$/.test(name)) return 'html'
+      if (/\.(md|txt|docx?|xlsx?|pptx?)$/.test(name)) return 'document'
+      return 'file'
+    },
+    normalizeResource(resource) {
+      if (!resource || !resource.path) return null
+      const normalized = { ...resource }
+      normalized.type = this.resourceType(normalized)
+      normalized.name =
+        normalized.name ||
+        String(normalized.path).split(/[\\/]/).filter(Boolean).pop() ||
+        normalized.path
+      return normalized
+    },
+    stripResourceMarkers(text) {
+      return String(text || '')
+        .replace(/\[\[agentforge-resource:[^:\]]+:[^\]]+\]\]/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+    },
+    addComposerResources(resources, richSelection) {
+      const added = []
+      ;(resources || []).forEach((raw) => {
+        if (this.composerResources.length + added.length >= 5) {
+          this.$message.warning('单条消息最多添加 5 个资源')
+          return
+        }
+        const resource = this.normalizeResource(raw)
+        if (!resource || this.composerResources.some((item) => item.path === resource.path)) return
+        this.composerResources.push(resource)
+        added.push(resource)
+      })
+      if (!added.length) return
+      const markers = added.map((item) => this.resourceMarker(item)).join('')
+      if (richSelection && this.$refs.composerInput) {
+        this.$nextTick(() => this.$refs.composerInput.insertResourceMarkers(markers))
+        return
+      }
+      this.draft = `${this.draft}${markers}`
+      const lastPath = added[added.length - 1].path
+      this.$nextTick(() => {
+        this.autoGrow()
+        if (this.$refs.composerInput) this.$refs.composerInput.focusAfterResource(lastPath)
+      })
+    },
+    removeComposerResource(resourcePath) {
+      if (!resourcePath) return
+      this.composerResources = this.composerResources.filter((item) => item.path !== resourcePath)
+      this.draft = this.draft
+        .split(new RegExp(`\\[\\[agentforge-resource:[^:\\]]+:${this.escapeRegExp(encodeURIComponent(resourcePath))}\\]\\]`, 'g'))
+        .join('')
+      this.$nextTick(this.autoGrow)
+    },
+    previewComposerResource(resourcePath) {
+      if (!resourcePath) return
+      if (window.electronAPI && window.electronAPI.openPath) {
+        window.electronAPI.openPath(resourcePath).then((error) => {
+          if (error) this.$message.error(error)
+        })
+      } else {
+        this.$message.info(resourcePath)
+      }
+    },
+    escapeRegExp(value) {
+      return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    },
+    rememberComposerSelection() {
+      if (this.$refs.composerInput && this.$refs.composerInput.saveSelection) {
+        this.$refs.composerInput.saveSelection()
+      }
+    },
+    async chooseComposerResources(command) {
+      if (!this.canChat) {
+        this.$message.warning('请先创建 Agent')
+        return
+      }
+      try {
+        if (!window.electronAPI) {
+          this.$message.warning('浏览器模式不支持添加本地资源，请在桌面端使用')
+          return
+        }
+        const resources = command === 'folder'
+          ? await window.electronAPI.chooseResourceFolder()
+          : command === 'files'
+            ? await window.electronAPI.chooseResourceFiles()
+            : await window.electronAPI.chooseResources()
+        this.addComposerResources(resources, true)
+      } catch (error) {
+        this.$message.error(error.message || '读取本地资源失败')
+      }
+    },
+    async handleComposerPaste(event) {
+      this.rememberComposerSelection()
+      const clipboard = event.clipboardData
+      const files = Array.from((clipboard && clipboard.files) || [])
+      if (!files.length) return
+      const resources = files.map((file) => {
+        try {
+          const filePath = window.electronAPI && window.electronAPI.getPathForFile
+            ? window.electronAPI.getPathForFile(file)
+            : ''
+          return filePath ? { path: filePath, name: file.name, size: file.size } : null
+        } catch (_error) {
+          return null
+        }
+      }).filter(Boolean)
+      if (resources.length) {
+        this.addComposerResources(resources, true)
+        return
+      }
+      try {
+        const resourcesFromClipboard = window.electronAPI && window.electronAPI.readClipboardResources
+          ? await window.electronAPI.readClipboardResources()
+          : []
+        this.addComposerResources(resourcesFromClipboard, true)
+      } catch (error) {
+        this.$message.error(error.message || '读取剪贴板资源失败')
+      }
+    },
+    handleComposerDrop(event) {
+      this.rememberComposerSelection()
+      const files = Array.from((event.dataTransfer && event.dataTransfer.files) || [])
+      if (!files.length) return
+      const resources = files.map((file) => {
+        try {
+          const filePath = window.electronAPI && window.electronAPI.getPathForFile
+            ? window.electronAPI.getPathForFile(file)
+            : ''
+          return filePath ? { path: filePath, name: file.name, size: file.size } : null
+        } catch (_error) {
+          return null
+        }
+      }).filter(Boolean)
+      if (resources.length) this.addComposerResources(resources, true)
     },
     createAnswer() {
       return {
@@ -859,6 +1031,7 @@ export default {
     },
     async send() {
       const text = this.draft.trim()
+      const resources = this.composerResources.slice()
       if (!this.canChat) {
         this.$message.warning('请先创建 Agent 并配置模型')
         return
@@ -867,7 +1040,7 @@ export default {
         await this.sendAppend()
         return
       }
-      if (!text) return
+      if (!text && !resources.length) return
       if (this.activeInterrupt) {
         this.$message.warning('请先处理上方的确认项')
         return
@@ -876,9 +1049,11 @@ export default {
         this.$message.warning('请先选择模型')
         return
       }
+      const visibleText = this.stripResourceMarkers(text)
       this.draft = ''
+      this.composerResources = []
       this.$nextTick(this.autoGrow)
-      this.messages.push({ role: 'user', text })
+      this.messages.push({ role: 'user', text: visibleText, rawText: text, resources })
       const answer = this.createAnswer()
       this.messages.push(answer)
       this.running = true
@@ -893,13 +1068,20 @@ export default {
           message: text,
           modelId: this.selectedModelId,
           workspaceId: this.selectedWorkspaceId,
-          projectPath: null
+          projectPath: null,
+          files: resources.map((item) => ({
+            path: item.path,
+            name: item.name,
+            fileType: item.fileType || '',
+            size: item.size || 0,
+            type: item.type || this.resourceType(item)
+          }))
         })
         answer.messageId = submitted && submitted.messageId
         if (submitted && submitted.sessionId) this.sessionId = submitted.sessionId
         if (submitted && submitted.sessionPk) this.activeSessionId = submitted.sessionPk
         if (submitted && submitted.title && !this.sessionTitle) this.sessionTitle = submitted.title
-        await this.consumeTask(answer, text, controller)
+        await this.consumeTask(answer, visibleText || '本地资源', controller)
       } catch (error) {
         if (error.name !== 'AbortError' && answer.status === 'running') {
           answer.status = 'error'
@@ -1093,7 +1275,8 @@ export default {
     async sendAppend() {
       if (this.stopping) return
       const text = this.draft.trim()
-      if (!text || !this.sessionId) {
+      const resources = this.composerResources.slice()
+      if ((!text && !resources.length) || !this.sessionId) {
         if (!this.sessionId) this.$message.warning('请先发送一轮对话后再追加指令')
         return
       }
@@ -1101,22 +1284,31 @@ export default {
         this.$message.warning('请先处理上方的确认项')
         return
       }
+      const visibleText = this.stripResourceMarkers(text)
       try {
         const result = await appendChatMessage({
           aid: this.selectedAid,
           sessionId: this.sessionId,
-          message: text
+          message: text,
+          files: resources.map((item) => ({
+            path: item.path,
+            name: item.name,
+            fileType: item.fileType || '',
+            size: item.size || 0,
+            type: item.type || this.resourceType(item)
+          }))
         })
         if (!result || !result.queued) {
           this.$message.warning((result && result.reason) || '追加失败')
           return
         }
         this.draft = ''
+        this.composerResources = []
         this.$nextTick(this.autoGrow)
         if (!this.controller) {
           this.pendingAppends.push({
             appendId: result.appendId,
-            content: text,
+            content: visibleText || resources.map((item) => item.name).join('、'),
             queuePosition: result.queuePosition
           })
         }

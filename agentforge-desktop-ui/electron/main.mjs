@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu, clipboard } from 'electron'
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
@@ -289,7 +289,41 @@ function createWindow() {
   else void win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
 }
 
-// 5、注册主进程 IPC：向渲染进程提供后端信息、打开路径和选择目录能力。
+// 5、注册主进程 IPC：向渲染进程提供后端信息、打开路径、资源选择与剪贴板读取能力。
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'])
+const DOCUMENT_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
+
+function describeResource(filePath) {
+  const resolved = path.resolve(String(filePath))
+  let stat = null
+  try {
+    stat = fs.statSync(resolved)
+  } catch (_error) {
+    return null
+  }
+  const directory = stat.isDirectory()
+  const name = path.basename(resolved)
+  const dot = directory ? -1 : name.lastIndexOf('.')
+  const fileType = dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
+  let type = 'file'
+  if (directory) type = 'folder'
+  else if (IMAGE_EXTENSIONS.has(fileType)) type = 'image'
+  else if (fileType === 'pdf') type = 'pdf'
+  else if (fileType === 'html' || fileType === 'htm') type = 'html'
+  else if (DOCUMENT_EXTENSIONS.has(fileType)) type = 'document'
+  return {
+    path: resolved,
+    name,
+    fileType,
+    size: directory ? 0 : stat.size,
+    type
+  }
+}
+
+function describeResources(filePaths) {
+  return (filePaths || []).map(describeResource).filter(Boolean)
+}
+
 function registerIpc() {
   ipcMain.handle('local-agent:server-info', () => ({
     baseUrl: backend.baseUrl,
@@ -318,6 +352,67 @@ function registerIpc() {
       filters: [{ name: 'Skill ZIP', extensions: ['zip'] }]
     })
     return result.canceled || !result.filePaths.length ? null : result.filePaths[0]
+  })
+  ipcMain.handle('local-agent:choose-resources', async (_event, currentPath) => {
+    const result = await dialog.showOpenDialog({
+      title: '添加图片、文件或文件夹',
+      defaultPath: String(currentPath || backend.workspace || app.getPath('home')),
+      properties: ['openFile', 'openDirectory', 'multiSelections']
+    })
+    return result.canceled ? [] : describeResources(result.filePaths)
+  })
+  ipcMain.handle('local-agent:choose-resource-files', async (_event, currentPath) => {
+    const result = await dialog.showOpenDialog({
+      title: '添加文件',
+      defaultPath: String(currentPath || backend.workspace || app.getPath('home')),
+      properties: ['openFile', 'multiSelections']
+    })
+    return result.canceled ? [] : describeResources(result.filePaths)
+  })
+  ipcMain.handle('local-agent:choose-resource-folder', async (_event, currentPath) => {
+    const result = await dialog.showOpenDialog({
+      title: '添加文件夹',
+      defaultPath: String(currentPath || backend.workspace || app.getPath('home')),
+      properties: ['openDirectory']
+    })
+    return result.canceled ? [] : describeResources(result.filePaths)
+  })
+  ipcMain.handle('local-agent:read-clipboard-resources', async () => {
+    const resources = []
+    try {
+      const raw = clipboard.read('public.file-url') || clipboard.read('text/uri-list') || ''
+      String(raw).split(/\r?\n/).forEach((line) => {
+        const value = line.trim()
+        if (!value) return
+        try {
+          const filePath = value.startsWith('file://') ? fileURLToPath(value) : value
+          if (fs.existsSync(filePath)) {
+            const item = describeResource(filePath)
+            if (item) resources.push(item)
+          }
+        } catch (_error) {
+          // ignore malformed clipboard entry
+        }
+      })
+    } catch (_error) {
+      // unsupported clipboard format
+    }
+    if (!resources.length) {
+      try {
+        const image = clipboard.readImage()
+        if (image && !image.isEmpty()) {
+          const dir = path.join(app.getPath('temp'), 'agentforge-clipboard')
+          fs.mkdirSync(dir, { recursive: true })
+          const target = path.join(dir, `clipboard-${Date.now()}-${randomBytes(4).toString('hex')}.png`)
+          fs.writeFileSync(target, image.toPNG())
+          const item = describeResource(target)
+          if (item) resources.push(item)
+        }
+      } catch (_error) {
+        // clipboard image unavailable
+      }
+    }
+    return resources
   })
 }
 

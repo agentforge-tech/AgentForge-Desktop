@@ -14,6 +14,9 @@
         <template slot-scope="{ row }">{{ providerName(row.provider) }}</template>
       </el-table-column>
       <el-table-column prop="modelName" label="模型标识" min-width="160" />
+      <el-table-column label="图片输入" width="100">
+        <template slot-scope="{ row }">{{ imageCapabilityName(row.supportsImage) }}</template>
+      </el-table-column>
       <el-table-column prop="url" label="Base URL" min-width="220" show-overflow-tooltip />
       <el-table-column label="操作" width="260" align="right">
         <template slot-scope="{ row }">
@@ -48,6 +51,14 @@
         <el-form-item label="API Key">
           <el-input v-model="form.apiKey" show-password placeholder="请输入 API Key" />
         </el-form-item>
+        <el-form-item label="图片输入能力">
+          <el-radio-group v-model="form.supportsImageMode">
+            <el-radio-button label="auto">自动</el-radio-button>
+            <el-radio-button label="yes">支持图片</el-radio-button>
+            <el-radio-button label="no">仅文本</el-radio-button>
+          </el-radio-group>
+          <div class="model-copy-tip">自动模式按模型注册表判断；自定义模型可在这里显式声明。</div>
+        </el-form-item>
       </el-form>
       <div slot="footer">
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -67,7 +78,9 @@ const emptyForm = () => ({
   modelType: 0,
   modelName: '',
   url: '',
-  apiKey: ''
+  apiKey: '',
+  supportsImage: null,
+  supportsImageMode: 'auto'
 })
 
 export default {
@@ -93,6 +106,16 @@ export default {
     providerName(provider) {
       return provider === 2 ? 'Anthropic' : 'OpenAI'
     },
+    imageCapabilityName(value) {
+      if (value === true) return '支持'
+      if (value === false) return '仅文本'
+      return '自动'
+    },
+    imageMode(value) {
+      if (value === true) return 'yes'
+      if (value === false) return 'no'
+      return 'auto'
+    },
     async load() {
       this.loading = true
       try {
@@ -110,7 +133,7 @@ export default {
     },
     openEdit(row) {
       this.copyFromName = ''
-      this.form = { ...row }
+      this.form = { ...row, supportsImageMode: this.imageMode(row.supportsImage) }
       this.dialogVisible = true
     },
     openCopy(row) {
@@ -118,7 +141,8 @@ export default {
       this.form = {
         ...row,
         id: null,
-        name: this.nextCopyName(row.name)
+        name: this.nextCopyName(row.name),
+        supportsImageMode: this.imageMode(row.supportsImage)
       }
       this.dialogVisible = true
     },
@@ -138,7 +162,17 @@ export default {
     async save() {
       this.saving = true
       try {
-        await upsertModel(this.form)
+        const payload = {
+          ...this.form,
+          supportsImage:
+            this.form.supportsImageMode === 'yes'
+              ? true
+              : this.form.supportsImageMode === 'no'
+                ? false
+                : null
+        }
+        delete payload.supportsImageMode
+        await upsertModel(payload)
         this.$message.success(this.copyFromName ? '模型副本已创建' : '模型已保存')
         this.dialogVisible = false
         this.copyFromName = ''

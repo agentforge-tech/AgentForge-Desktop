@@ -12,6 +12,7 @@ public class AgentSessionMessagePojo {
     private Long modelId;
     private String content;
     private String events;
+    private String req;
     private String executionId;
     private Long createUserId;
     private Integer isDeleted;
@@ -40,6 +41,8 @@ public class AgentSessionMessagePojo {
     public void setContent(String content) { this.content = content; }
     public String getEvents() { return events; }
     public void setEvents(String events) { this.events = events; }
+    public String getReq() { return req; }
+    public void setReq(String req) { this.req = req; }
     public String getExecutionId() { return executionId; }
     public void setExecutionId(String executionId) { this.executionId = executionId; }
     public Long getCreateUserId() { return createUserId; }

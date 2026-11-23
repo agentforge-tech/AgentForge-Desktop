@@ -68,6 +68,7 @@ public class ModelConfigService {
         model.modelName = req.getModelName();
         model.url = req.getUrl();
         model.apiKey = req.getApiKey();
+        model.supportsImage = req.getSupportsImage();
         ModelConfigVo result = toVo(configStore.upsertModel(model));
         runtimeService.clearAll();
         return result;
@@ -180,6 +181,7 @@ public class ModelConfigService {
             model.modelName = existing.modelName;
             model.url = existing.url;
             model.apiKey = existing.apiKey;
+            model.supportsImage = existing.supportsImage;
         }
         if (req.getProvider() != null) {
             model.provider = req.getProvider();
@@ -211,6 +213,7 @@ public class ModelConfigService {
         vo.setModelName(model.modelName);
         vo.setUrl(model.url);
         vo.setApiKey(model.apiKey);
+        vo.setSupportsImage(model.supportsImage);
         vo.setCreateTime(model.createTime);
         vo.setModifyTime(model.modifyTime);
         return vo;

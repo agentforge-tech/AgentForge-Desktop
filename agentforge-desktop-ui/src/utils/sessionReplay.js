@@ -18,6 +18,35 @@ function parseEvents(raw) {
   }
 }
 
+function parseReq(raw) {
+  if (!raw) return null
+  if (typeof raw === 'object') return raw
+  try {
+    return JSON.parse(raw)
+  } catch (_error) {
+    return null
+  }
+}
+
+function replayUserResources(record) {
+  const req = parseReq(record.req)
+  const files = (req && Array.isArray(req.files) && req.files) || []
+  return files
+    .filter((item) => item && item.path)
+    .map((item) => ({
+      path: item.path,
+      name: item.originFileName || item.name || '',
+      fileType: item.fileType || '',
+      size: item.fileSize || item.size || 0,
+      type: item.type || ''
+    }))
+}
+
+function replayUserRawText(record) {
+  const req = parseReq(record.req)
+  return req && typeof req.rawMessage === 'string' ? req.rawMessage : ''
+}
+
 function applyThink(message, event) {
   const last = message.parts[message.parts.length - 1]
   const open = last && last.type === 'think' && last.status === 'thinking' ? last : null
@@ -183,7 +212,12 @@ export function replaySessionMessages(records) {
   const messages = []
   ;(records || []).forEach((record) => {
     if (record.roleType === 1) {
-      messages.push({ role: 'user', text: record.contentText || '' })
+      messages.push({
+        role: 'user',
+        text: record.contentText || '',
+        rawText: replayUserRawText(record),
+        resources: replayUserResources(record)
+      })
       return
     }
     messages.push(replayMessage(record))

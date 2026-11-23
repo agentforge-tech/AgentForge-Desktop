@@ -683,6 +683,8 @@ public class DesktopConfigStore {
         public String modelName;
         public String url;
         public String apiKey;
+        /** 显式视觉能力；为空时回退到 LlmModelConfigRegistry。 */
+        public Boolean supportsImage;
         public String createTime;
         public String modifyTime;
     }

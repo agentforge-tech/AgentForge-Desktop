@@ -1,5 +1,6 @@
 package cloud.changlu.agentforge.desktop.modules.chat.controller;
 
+import cloud.changlu.agentforge.agent.domain.AgentAttachment;
 import cloud.changlu.agentforge.agent.domain.AgentRequest;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.ApprovalAction;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptBatchResumeCommand;
@@ -10,6 +11,8 @@ import cloud.changlu.agentforge.agent.governance.tool.askuser.AskUserAnswer;
 import cloud.changlu.agentforge.agent.governance.tool.askuser.AskUserResponse;
 import cloud.changlu.agentforge.agent.governance.tool.askuser.AskUserSupport;
 import cloud.changlu.agentforge.desktop.config.DesktopProperties;
+import cloud.changlu.agentforge.desktop.modules.agent.attachment.DesktopAgentAttachmentService;
+import cloud.changlu.agentforge.desktop.modules.agent.attachment.DesktopModelCapabilities;
 import cloud.changlu.agentforge.desktop.modules.agent.runtime.AgentRuntimeService;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.AgentInterruptResumeReq;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.AgentInterruptResponseReq;
@@ -19,6 +22,8 @@ import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatStopVo;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatStreamRequest;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreamingMiddleware;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.SessionLifecycleMiddleware;
+import cloud.changlu.agentforge.desktop.modules.resource.domain.ResolvedResource;
+import cloud.changlu.agentforge.desktop.modules.resource.service.DesktopResourceService;
 import cloud.changlu.agentforge.desktop.modules.session.dao.AgentSessionMapper;
 import cloud.changlu.agentforge.desktop.modules.session.dao.AgentSessionMessageMapper;
 import cloud.changlu.agentforge.desktop.modules.session.domain.AgentSessionMessagePojo;
@@ -65,6 +70,9 @@ public class ChatController {
     private final AgentSessionMapper sessionMapper;
     private final DesktopProperties desktopProperties;
     private final WorkspaceBindingService workspaceBindingService;
+    private final DesktopResourceService resourceService;
+    private final DesktopAgentAttachmentService attachmentService;
+    private final DesktopModelCapabilities modelCapabilities;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Map<String, CancelHandle> activeStops =
             new ConcurrentHashMap<String, CancelHandle>();
@@ -79,7 +87,10 @@ public class ChatController {
             AgentSessionMessageMapper messageMapper,
             AgentSessionMapper sessionMapper,
             DesktopProperties desktopProperties,
-            WorkspaceBindingService workspaceBindingService) {
+            WorkspaceBindingService workspaceBindingService,
+            DesktopResourceService resourceService,
+            DesktopAgentAttachmentService attachmentService,
+            DesktopModelCapabilities modelCapabilities) {
         this.configStore = configStore;
         this.sessionService = sessionService;
         this.runtimeService = runtimeService;
@@ -90,6 +101,9 @@ public class ChatController {
         this.sessionMapper = sessionMapper;
         this.desktopProperties = desktopProperties;
         this.workspaceBindingService = workspaceBindingService;
+        this.resourceService = resourceService;
+        this.attachmentService = attachmentService;
+        this.modelCapabilities = modelCapabilities;
     }
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -97,10 +111,10 @@ public class ChatController {
         if (body == null || body.getAid() == null || body.getAid().trim().isEmpty()) {
             throw new IllegalArgumentException("aid 不能为空");
         }
-        if (body.getMessage() == null || body.getMessage().trim().isEmpty()) {
-            throw new IllegalArgumentException("对话内容不能为空");
+        boolean hasMessage = body.getMessage() != null && !body.getMessage().trim().isEmpty();
+        if (!hasMessage && !body.hasFiles()) {
+            throw new IllegalArgumentException("对话内容或资源不能同时为空");
         }
-        String message = body.getMessage().trim();
         String aid = body.getAid().trim();
 
         configStore.reloadIfChanged();
@@ -116,15 +130,28 @@ public class ChatController {
 
         final AgentSessionService.SessionInitResult init;
         final HarnessAgent runtime;
+        final String question;
+        final List<AgentAttachment> attachments;
         try {
+            List<ResolvedResource> resources = resourceService.resolve(body.getFiles());
+            String displayMessage = resourceService.displayText(body.getMessage());
+            if (displayMessage.isEmpty() && !resources.isEmpty()) {
+                displayMessage = "请处理我提供的本地资源。";
+            }
+            question = resourceService.buildAgentQuestion(body.getMessage(), resources);
+            String reqJson = attachmentService.buildUserReqJson(body, resources, displayMessage);
+            attachments = attachmentService.toAgentAttachments(
+                    resources,
+                    modelCapabilities.supportsImage(model),
+                    modelCapabilities.providerCode(model));
             String resolvedSessionId = body.getSessionId() == null || body.getSessionId().trim().isEmpty()
                     ? UUID.randomUUID().toString()
                     : body.getSessionId().trim();
             WorkspaceBindingService.Binding binding = workspaceBindingService.prepare(
                     aid, resolvedSessionId, body.getWorkspaceId(), body.getProjectPath());
             init = sessionService.initChat(
-                    aid, resolvedSessionId, message, modelId, 1L,
-                    binding.getWorkspaceId(), binding.getWorkspacePath());
+                    aid, resolvedSessionId, displayMessage, modelId, 1L,
+                    binding.getWorkspaceId(), binding.getWorkspacePath(), reqJson);
             runtime = runtimeService.getOrCreate(agent, model, binding.getWorkspacePath());
         } catch (RuntimeException e) {
             return notice(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
@@ -162,7 +189,8 @@ public class ChatController {
                                 AgentRequest.builder()
                                         .memoryId(init.getSessionId())
                                         .executionId(executionId)
-                                        .question(message)
+                                        .question(question)
+                                        .attachments(attachments)
                                         .extensions(extensions)
                                         .build();
                         runtimeService.stream(runtime, request);
