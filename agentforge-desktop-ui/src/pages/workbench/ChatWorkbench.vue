@@ -94,7 +94,7 @@
             <div class="workspace-tree-head" role="button" tabindex="0" @click="toggleWorkspaceGroup(group.id)" @keydown.enter="toggleWorkspaceGroup(group.id)">
               <i class="el-icon-folder"></i>
               <span class="workspace-tree-name" :title="group.folderPath">{{ group.name }}</span>
-              <i :class="expandedWorkspaceIds.includes(group.id) ? 'el-icon-arrow-down' : 'el-icon-arrow-right'"></i>
+              <i class="workspace-tree-chevron" :class="expandedWorkspaceIds.includes(group.id) ? 'el-icon-arrow-down' : 'el-icon-arrow-right'"></i>
               <el-dropdown class="workspace-more" trigger="click" placement="bottom-start" @command="handleWorkspaceCommand($event, group)" @click.native.stop>
                 <span class="workspace-more-trigger" title="更多操作"><i class="el-icon-more"></i></span>
                 <el-dropdown-menu slot="dropdown" class="workspace-action-menu">
@@ -103,6 +103,19 @@
                   <el-dropdown-item command="delete" icon="el-icon-delete" divided>删除空间</el-dropdown-item>
                 </el-dropdown-menu>
               </el-dropdown>
+              <button
+                type="button"
+                class="workspace-new-chat"
+                title="在此项目空间新建会话"
+                aria-label="在此项目空间新建会话"
+                @click.stop="startWorkspaceChat(group)"
+                @keydown.stop
+              >
+                <svg class="workspace-new-chat-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <circle cx="8" cy="8" r="6.25" />
+                  <path d="M8 5.25v5.5M5.25 8h5.5" />
+                </svg>
+              </button>
             </div>
             <div v-show="expandedWorkspaceIds.includes(group.id)" class="workspace-tree-sessions">
               <div
@@ -371,6 +384,8 @@ import {
   changeSessionTitle,
   deleteSession,
   fetchSessionMessages,
+  fetchSessionDetail,
+  updateSessionContext,
   resolveSessionTitle
 } from '../../api/session'
 import { replaySessionMessages } from '../../utils/sessionReplay'
@@ -430,7 +445,10 @@ export default {
     normalTasksOpen: true,
     skillManagerOpen: false,
     pendingAppends: [],
-    deferredAppends: []
+    deferredAppends: [],
+    sessionContextTimer: null,
+    pendingSessionContext: null,
+    contextSyncPaused: false
   }),
   computed: {
     renderModes() {
@@ -537,6 +555,18 @@ export default {
     },
     selectedModelId(value) {
       this.watchModelSelection(value)
+    },
+    draft() {
+      this.scheduleSessionContextUpdate()
+    },
+    composerResources: {
+      deep: true,
+      handler() {
+        this.scheduleSessionContextUpdate()
+      }
+    },
+    selectedWorkspaceId() {
+      this.scheduleSessionContextUpdate()
     }
   },
   created() {
@@ -546,6 +576,7 @@ export default {
   },
   beforeDestroy() {
     if (this.sessionRefreshTimer) clearTimeout(this.sessionRefreshTimer)
+    this.flushSessionContextUpdate()
     if (this.controller) this.controller.abort()
   },
   methods: {
@@ -618,6 +649,7 @@ export default {
       if (value != null && this.selectedAid) {
         localStorage.setItem(`agentforge.model.${this.selectedAid}`, String(value))
       }
+      this.scheduleSessionContextUpdate()
     },
     scheduleSessionRefresh() {
       this.sessionRefreshTimer = setTimeout(async () => {
@@ -655,6 +687,8 @@ export default {
     },
     async openSession(item) {
       if (!item) return
+      this.flushSessionContextUpdate()
+      this.contextSyncPaused = true
       const version = ++this.sessionLoadVersion
       if (this.controller) {
         this.controller.abort()
@@ -671,11 +705,17 @@ export default {
       this.selectedAidSessionModel = item.modelId
       this.selectedWorkspaceId = item.workspaceId == null ? null : item.workspaceId
       this.refreshModelSelection()
+      this.draft = ''
+      this.composerResources = []
       this.messages = []
       try {
-        const records = await fetchSessionMessages(item.id)
+        const [records, detail] = await Promise.all([
+          fetchSessionMessages(item.id),
+          fetchSessionDetail(item.id).catch(() => null)
+        ])
         if (version !== this.sessionLoadVersion) return
         this.messages = replaySessionMessages(records)
+        this.applySessionContext(detail && detail.context, item)
         const lastAssistant = [...this.messages].reverse().find((message) => message.role === 'assistant')
         const lastRecord = [...(records || [])].reverse().find((record) => record.roleType === 2)
         const status = Number(lastRecord && lastRecord.status)
@@ -707,10 +747,18 @@ export default {
         this.scroll()
       } catch (error) {
         if (version === this.sessionLoadVersion) this.$message.error(error.message || '会话加载失败')
+      } finally {
+        if (version === this.sessionLoadVersion) {
+          this.$nextTick(() => {
+            if (version === this.sessionLoadVersion) this.contextSyncPaused = false
+          })
+        }
       }
     },
 
     newChat() {
+      this.flushSessionContextUpdate()
+      this.contextSyncPaused = false
       ++this.sessionLoadVersion
       if (this.controller) {
         this.controller.abort()
@@ -864,6 +912,87 @@ export default {
     activeComposerResources(text) {
       const paths = new Set(this.parseComposerMarkers(text).map((marker) => marker.path))
       return this.composerResources.filter((item) => paths.has(item.path))
+    },
+    buildSessionContext() {
+      const workspace = this.workspaces.find((item) => item.id === this.selectedWorkspaceId)
+      return {
+        modelId: this.selectedModelId,
+        message: this.draft || '',
+        projectPath: workspace ? workspace.folderPath : '',
+        files: this.composerResources.map((item) => ({
+          path: item.path,
+          name: item.name || '',
+          fileType: item.fileType || '',
+          size: item.size || 0,
+          type: item.type || this.resourceType(item)
+        }))
+      }
+    },
+    scheduleSessionContextUpdate() {
+      if (this.contextSyncPaused || !this.activeSessionId || !this.sessionId) return
+      this.pendingSessionContext = {
+        sessionId: this.activeSessionId,
+        context: this.buildSessionContext()
+      }
+      if (this.sessionContextTimer) clearTimeout(this.sessionContextTimer)
+      this.sessionContextTimer = setTimeout(() => {
+        this.sessionContextTimer = null
+        this.flushSessionContextUpdate()
+      }, 500)
+    },
+    async flushSessionContextUpdate() {
+      if (this.sessionContextTimer) {
+        clearTimeout(this.sessionContextTimer)
+        this.sessionContextTimer = null
+      }
+      const pending = this.pendingSessionContext
+      this.pendingSessionContext = null
+      if (!pending || !pending.sessionId) return
+      try {
+        await updateSessionContext(pending.sessionId, pending.context)
+      } catch (error) {
+        // 上下文保存失败不阻塞输入，下一次编辑会再次尝试
+      }
+    },
+    applySessionContext(context, item) {
+      const data = context && typeof context === 'object' ? context : null
+      const modelId = data && data.modelId != null ? data.modelId : item.modelId
+      this.selectedAidSessionModel = modelId == null ? null : Number(modelId)
+
+      if (data && typeof data.projectPath === 'string') {
+        const path = data.projectPath.trim()
+        const workspace = path ? this.workspaces.find((entry) => entry.folderPath === path) : null
+        if (workspace) {
+          this.selectedWorkspaceId = workspace.id
+        } else if (path && item.workspacePath === path && item.workspaceId != null) {
+          this.selectedWorkspaceId = item.workspaceId
+        } else {
+          this.selectedWorkspaceId = null
+        }
+      } else {
+        this.selectedWorkspaceId = item.workspaceId == null ? null : item.workspaceId
+      }
+      this.refreshModelSelection()
+
+      const message = data ? String(data.message || '') : ''
+      const files = data && Array.isArray(data.files) ? data.files : []
+      const fileMap = new Map()
+      files.forEach((raw) => {
+        const resource = this.normalizeResource(raw)
+        if (resource) fileMap.set(resource.path, resource)
+      })
+      const resources = []
+      const seen = new Set()
+      this.parseComposerMarkers(message).forEach((marker) => {
+        if (seen.has(marker.path)) return
+        seen.add(marker.path)
+        const resource =
+          fileMap.get(marker.path) ||
+          this.normalizeResource({ path: marker.path, type: marker.type })
+        if (resource) resources.push(resource)
+      })
+      this.composerResources = resources
+      this.draft = message
     },
     onEnter() {
       if (this.running && (this.draft.trim() || this.composerResources.length)) {
@@ -1119,7 +1248,10 @@ export default {
         if (submitted && submitted.sessionId) this.sessionId = submitted.sessionId
         if (submitted && submitted.sessionPk) this.activeSessionId = submitted.sessionPk
         if (submitted && submitted.title && !this.sessionTitle) this.sessionTitle = submitted.title
-        if (submitted && submitted.sessionPk) await this.loadSessions({ silent: true })
+        if (submitted && submitted.sessionPk) {
+          await this.loadSessions({ silent: true })
+          this.scheduleSessionContextUpdate()
+        }
         await this.consumeTask(answer, visibleText || '本地资源', controller)
       } catch (error) {
         if (error.name !== 'AbortError' && answer.status === 'running') {
@@ -1497,6 +1629,18 @@ export default {
       const index = this.expandedWorkspaceIds.indexOf(id)
       if (index >= 0) this.expandedWorkspaceIds.splice(index, 1)
       else this.expandedWorkspaceIds.push(id)
+    },
+    startWorkspaceChat(workspace) {
+      if (!workspace) return
+      this.newChat()
+      this.selectedWorkspaceId = workspace.id
+      if (!this.expandedWorkspaceIds.includes(workspace.id)) {
+        this.expandedWorkspaceIds.push(workspace.id)
+      }
+      this.$nextTick(() => {
+        if (this.$refs.composerInput) this.$refs.composerInput.focus()
+      })
+      this.scroll()
     },
     async handleWorkspaceCommand(command, workspace) {
       if (command === 'open') {

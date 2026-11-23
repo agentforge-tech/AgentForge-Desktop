@@ -10,6 +10,8 @@ import cloud.changlu.agentforge.desktop.modules.session.enums.SessionMessageRole
 import cloud.changlu.agentforge.desktop.modules.session.enums.SessionMessageStatusEnum;
 import cloud.changlu.agentforge.desktop.modules.session.enums.SessionStatusEnum;
 import cloud.changlu.agentforge.desktop.modules.session.util.SessionTitleUtil;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,11 +32,15 @@ public class AgentSessionService {
 
     private final AgentSessionMapper sessionMapper;
     private final AgentSessionMessageMapper messageMapper;
+    private final ObjectMapper objectMapper;
 
     public AgentSessionService(
-            AgentSessionMapper sessionMapper, AgentSessionMessageMapper messageMapper) {
+            AgentSessionMapper sessionMapper,
+            AgentSessionMessageMapper messageMapper,
+            ObjectMapper objectMapper) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -147,6 +153,28 @@ public class AgentSessionService {
         return toVoList(sessionMapper.selectTopList(aid.trim()));
     }
 
+    public SessionVo detail(Long sessionId) {
+        AgentSessionPojo session = requireOwned(sessionId);
+        SessionVo vo = toVo(session);
+        vo.setContext(parseContext(session.getContext()));
+        return vo;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public boolean updateContext(Long sessionId, JsonNode context) {
+        AgentSessionPojo session = requireOwned(sessionId);
+        String raw = null;
+        if (context != null && !context.isNull()) {
+            try {
+                raw = objectMapper.writeValueAsString(context);
+            } catch (Exception e) {
+                throw new IllegalArgumentException("会话上下文格式不合法");
+            }
+        }
+        sessionMapper.updateContext(session.getId(), raw);
+        return true;
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public boolean setTop(Long sessionId, boolean top) {
         AgentSessionPojo session = requireOwned(sessionId);
@@ -210,6 +238,15 @@ public class AgentSessionService {
             result.add(toVo(session));
         }
         return result;
+    }
+
+    private JsonNode parseContext(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return null;
+        try {
+            return objectMapper.readTree(raw);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private SessionVo toVo(AgentSessionPojo session) {

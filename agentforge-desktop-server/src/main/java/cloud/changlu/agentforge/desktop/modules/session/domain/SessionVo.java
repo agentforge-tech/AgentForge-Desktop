@@ -1,5 +1,8 @@
 package cloud.changlu.agentforge.desktop.modules.session.domain;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.JsonNode;
+
 public class SessionVo {
     private Long id;
     private String sessionId;
@@ -9,6 +12,7 @@ public class SessionVo {
     private Long modelId;
     private Long workspaceId;
     private String workspacePath;
+    private JsonNode context;
     private Integer topOrder;
     private String createTime;
     private String modifyTime;
@@ -32,6 +36,9 @@ public class SessionVo {
     public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
     public String getWorkspacePath() { return workspacePath; }
     public void setWorkspacePath(String workspacePath) { this.workspacePath = workspacePath; }
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public JsonNode getContext() { return context; }
+    public void setContext(JsonNode context) { this.context = context; }
     public Integer getTopOrder() { return topOrder; }
     public void setTopOrder(Integer topOrder) { this.topOrder = topOrder; }
     public String getCreateTime() { return createTime; }

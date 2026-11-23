@@ -9,6 +9,7 @@ public class AgentSessionPojo {
     private Long modelId;
     private Long workspaceId;
     private String workspacePath;
+    private String context;
     private Integer pinOrder;
     private Long createUserId;
     private Integer isDeleted;
@@ -31,6 +32,8 @@ public class AgentSessionPojo {
     public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
     public String getWorkspacePath() { return workspacePath; }
     public void setWorkspacePath(String workspacePath) { this.workspacePath = workspacePath; }
+    public String getContext() { return context; }
+    public void setContext(String context) { this.context = context; }
     public Integer getPinOrder() { return pinOrder; }
     public void setPinOrder(Integer pinOrder) { this.pinOrder = pinOrder; }
     public Long getCreateUserId() { return createUserId; }

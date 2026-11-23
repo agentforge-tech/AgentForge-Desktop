@@ -33,6 +33,9 @@ public interface AgentSessionMapper {
     @Update("UPDATE ai_agent_session SET model_id=#{modelId}, modify_time=#{modifyTime} WHERE id=#{id}")
     int updateModelId(@Param("id") Long id, @Param("modelId") Long modelId, @Param("modifyTime") String modifyTime);
 
+    @Update("UPDATE ai_agent_session SET context=#{context} WHERE id=#{id}")
+    int updateContext(@Param("id") Long id, @Param("context") String context);
+
     @Update("UPDATE ai_agent_session SET workspace_id=#{workspaceId}, workspace_path=#{workspacePath}, modify_time=#{modifyTime} WHERE id=#{id}")
     int updateWorkspace(@Param("id") Long id, @Param("workspaceId") Long workspaceId, @Param("workspacePath") String workspacePath, @Param("modifyTime") String modifyTime);
 

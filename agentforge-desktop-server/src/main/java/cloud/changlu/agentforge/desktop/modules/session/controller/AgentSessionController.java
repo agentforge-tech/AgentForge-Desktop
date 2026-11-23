@@ -1,6 +1,7 @@
 package cloud.changlu.agentforge.desktop.modules.session.controller;
 
 import cloud.changlu.agentforge.desktop.modules.session.domain.SessionChangeTitleReq;
+import cloud.changlu.agentforge.desktop.modules.session.domain.SessionContextUpdateReq;
 import cloud.changlu.agentforge.desktop.modules.session.domain.SessionIdReq;
 import cloud.changlu.agentforge.desktop.modules.session.domain.SessionListReq;
 import cloud.changlu.agentforge.desktop.modules.session.domain.SessionSetTopReq;
@@ -33,6 +34,22 @@ public class AgentSessionController {
     public List<SessionVo> topList(@RequestBody(required = false) SessionListReq req) {
         SessionListReq query = req == null ? new SessionListReq() : req;
         return service.listTop(query.getAid());
+    }
+
+    @PostMapping("/detail")
+    public SessionVo detail(@RequestBody SessionIdReq req) {
+        if (req == null || req.getSessionId() == null) {
+            throw new IllegalArgumentException("sessionId 不能为空");
+        }
+        return service.detail(req.getSessionId());
+    }
+
+    @PostMapping("/updateContext")
+    public Boolean updateContext(@RequestBody SessionContextUpdateReq req) {
+        if (req == null || req.getSessionId() == null) {
+            throw new IllegalArgumentException("sessionId 不能为空");
+        }
+        return service.updateContext(req.getSessionId(), req.getContext());
     }
 
     @PostMapping("/setTop")

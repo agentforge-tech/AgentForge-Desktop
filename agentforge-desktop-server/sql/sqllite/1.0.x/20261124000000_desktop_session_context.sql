@@ -1,0 +1,1 @@
+ALTER TABLE ai_agent_session ADD COLUMN context TEXT DEFAULT NULL;

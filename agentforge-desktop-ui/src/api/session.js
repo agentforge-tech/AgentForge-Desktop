@@ -27,6 +27,14 @@ export function fetchSessionMessages(sessionId) {
   return post(MESSAGE_BASE + '/detail', { sessionId })
 }
 
+export function fetchSessionDetail(sessionId) {
+  return post(SESSION_BASE + '/detail', { sessionId })
+}
+
+export function updateSessionContext(sessionId, context) {
+  return post(SESSION_BASE + '/updateContext', { sessionId, context })
+}
+
 export function resolveSessionTitle(text) {
   const normalized = String(text || '').trim().replace(/\s+/g, ' ')
   if (!normalized) return '新会话'
