@@ -24,6 +24,8 @@ packaging.config.local.json
 
 # 桌面本地调试数据
 .agentforge-dev/
+# 本地 UI 验证脚手架（含本机绝对路径，仅供本地调试）
+.navtest/
 
 # 本地数据
 data/
