@@ -84,6 +84,31 @@
   font-size: 11px;
 }
 
+/* 品牌名 + 版本标签：名称过长时只让名称省略，标签始终完整可见 */
+.current-agent-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.current-agent-title b {
+  min-width: 0;
+}
+
+.current-agent-info .app-version-tag {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: #5b6ee1;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.2px;
+  user-select: none;
+}
+
 .new-chat-btn,
 .skill-manager-btn {
   width: 100%;

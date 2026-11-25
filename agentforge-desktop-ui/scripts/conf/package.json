@@ -1,4 +1,5 @@
 {
   "appLogo": "assets/app-logo.png",
-  "appName": "AgentForge Desktop"
+  "appName": "AgentForge Desktop",
+  "appTag": "v1.0.0"
 }

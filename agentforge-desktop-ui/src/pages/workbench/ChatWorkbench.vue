@@ -10,7 +10,10 @@
             </svg>
           </div>
           <div class="current-agent-info">
-            <b>{{ currentAgent ? currentAgent.name : 'AgentForge Desktop' }}</b>
+            <div class="current-agent-title">
+              <b>{{ currentAgent ? currentAgent.name : appName }}</b>
+              <span v-if="appTag" class="app-version-tag">{{ appTag }}</span>
+            </div>
           </div>
         </div>
         <el-button size="small" class="new-chat-btn" :class="{ active: newChatHighlighted }" @click="newChat">
@@ -484,6 +487,7 @@ import { deleteWorkspace, fetchWorkspaces, renameWorkspace } from '../../api/wor
 import agentLogo from '../../assets/agent-logo.png'
 import deepseekLogo from '../../assets/deepseek.svg'
 import openaiLogo from '../../assets/openai.svg'
+import { APP_NAME, APP_TAG } from '../../constants/appMeta'
 
 const COMPOSER_MAX_HEIGHT = 140
 const MODE_KEY = 'agentforge.render.mode'
@@ -502,6 +506,8 @@ export default {
   mixins: [chatAutoScroll, chatAnchorNav],
   data: () => ({
     brandLogo: agentLogo,
+    appName: APP_NAME,
+    appTag: APP_TAG,
     agents: [],
     models: [],
     selectedAid: '',

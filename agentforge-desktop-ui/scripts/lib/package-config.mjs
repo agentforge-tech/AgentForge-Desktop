@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fromUi } from './paths.mjs'
 
-export function loadPackageConfig(confDir = fromUi('scripts', 'conf')) {
+function readPackageConfig(confDir) {
   const configPath = path.join(confDir, 'package.json')
   let config = {}
   try {
@@ -13,9 +13,32 @@ export function loadPackageConfig(confDir = fromUi('scripts', 'conf')) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     throw new Error(`Invalid package config ${configPath}: expected an object`)
   }
+  return { config, configPath }
+}
+
+// 只读取界面展示所需的元信息（名称、版本标签），不做图标文件校验。
+export function loadAppMeta(confDir = fromUi('scripts', 'conf')) {
+  const { config, configPath } = readPackageConfig(confDir)
+  const appTag = config.appTag === undefined ? '' : config.appTag
+  if (typeof appTag !== 'string' || appTag !== appTag.trim() || appTag.length > 32 || /[\x00-\x1f\x7f]/.test(appTag)) {
+    throw new Error(`Invalid appTag in ${configPath}: expected a short version tag such as v1.0.0, or an empty string`)
+  }
+  const appName = config.appName === undefined || config.appName === '' ? 'AgentForge Desktop' : config.appName
+  if (typeof appName !== 'string' || !appName.trim()) {
+    throw new Error(`Invalid appName in ${configPath}: expected a non-empty application name`)
+  }
+  return { appName, appTag }
+}
+
+export function loadPackageConfig(confDir = fromUi('scripts', 'conf')) {
+  const { config, configPath } = readPackageConfig(confDir)
   const appName = config.appName === undefined || config.appName === '' ? 'AgentForge Desktop' : config.appName
   if (typeof appName !== 'string' || !appName.trim() || appName !== appName.trim() || /[<>:"/\\|?*\x00-\x1f]/.test(appName) || /\.$/.test(appName) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(appName)) {
     throw new Error(`Invalid appName in ${configPath}: expected a valid cross-platform application name`)
+  }
+  const appTag = config.appTag === undefined ? '' : config.appTag
+  if (typeof appTag !== 'string' || appTag !== appTag.trim() || appTag.length > 32 || /[\x00-\x1f\x7f]/.test(appTag)) {
+    throw new Error(`Invalid appTag in ${configPath}: expected a short version tag such as v1.0.0, or an empty string`)
   }
   const logo = config.appLogo === undefined || config.appLogo === '' ? 'assets/app-logo.png' : config.appLogo
   if (typeof logo !== 'string' || !logo.trim()) {
@@ -37,5 +60,5 @@ export function loadPackageConfig(confDir = fromUi('scripts', 'conf')) {
   if (width !== height || width < 512) {
     throw new Error(`Invalid appLogo ${appLogo}: image must be square and at least 512 x 512 pixels`)
   }
-  return { appLogo, appName }
+  return { appLogo, appName, appTag }
 }
