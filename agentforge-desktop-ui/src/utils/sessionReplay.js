@@ -216,7 +216,9 @@ export function replaySessionMessages(records) {
         role: 'user',
         text: record.contentText || '',
         rawText: replayUserRawText(record),
-        resources: replayUserResources(record)
+        resources: replayUserResources(record),
+        // 缩略导航的轮次时间依赖该字段，历史记录可能只有 createTime 或 modifyTime
+        createTime: record.createTime || record.modifyTime || ''
       })
       return
     }

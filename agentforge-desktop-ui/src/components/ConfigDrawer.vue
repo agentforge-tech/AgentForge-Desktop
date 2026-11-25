@@ -13,12 +13,16 @@
       <nav class="settings-nav" aria-label="工作台设置选项">
         <div class="settings-nav-label">配置</div>
         <button type="button" :class="{ active: tab === 'models' }" @click="tab = 'models'">
-          <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 9h6v6H9zM9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3"/></svg>
+          <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/><path d="M9 2.8v2.4M15 2.8v2.4M9 18.8v2.4M15 18.8v2.4M2.8 9h2.4M2.8 15h2.4M18.8 9h2.4M18.8 15h2.4"/><path d="M9 10h2M13 10h2M9 14h2M13 14h2"/></svg>
           <span>模型配置</span>
         </button>
         <button type="button" :class="{ active: tab === 'agent' }" @click="tab = 'agent'">
-          <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+          <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="7" width="14" height="12" rx="3"/><path d="M12 7V4M9 4h6M8.5 12h.01M15.5 12h.01M9 16h6M3 11v4M21 11v4"/></svg>
           <span>默认 Agent 配置</span>
+        </button>
+        <button type="button" :class="{ active: tab === 'system' }" @click="tab = 'system'">
+          <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+          <span>系统配置</span>
         </button>
       </nav>
 
@@ -72,7 +76,27 @@
             </div>
             <el-button class="add-model-btn" icon="el-icon-plus" @click="newModel">新增模型</el-button>
           </div>
+        </section>
 
+        <section v-show="tab === 'system'" class="settings-section">
+          <header class="settings-section-head"><b>系统配置</b><span>管理桌面端系统级运行参数</span></header>
+          <div class="system-setting-row">
+            <div class="system-setting-copy">
+              <b>交互模式支持切换</b>
+              <span>允许在工作台中切换交互模式</span>
+            </div>
+            <el-checkbox v-model="systemForm.interactionModeSupport" aria-label="交互模式支持切换" />
+          </div>
+          <div class="system-setting-row">
+            <div class="system-setting-copy">
+              <b>任务完成提醒</b>
+              <span>任务执行完成或失败时，应用图标跳动 / 任务栏闪烁提醒</span>
+            </div>
+            <el-checkbox v-model="systemForm.taskCompletionReminder" aria-label="任务完成提醒" />
+          </div>
+          <div class="system-config-actions">
+            <el-button type="primary" :loading="savingSystem" @click="saveSystem">保存系统配置</el-button>
+          </div>
         </section>
       </div>
     </div>
@@ -161,7 +185,12 @@ export default {
     initError: '',
     modelEditorVisible: false,
     modelForm: emptyModel(),
-    modelCopyFromName: ''
+    modelCopyFromName: '',
+    savingSystem: false,
+    systemForm: {
+      interactionModeSupport: false,
+      taskCompletionReminder: true
+    }
   }),
   computed: {
     modelDialogTitle() {
@@ -201,6 +230,13 @@ export default {
       this.initError = ''
       try {
         this.models = (await fetchModels()) || []
+        this.systemForm.interactionModeSupport = false
+        this.systemForm.taskCompletionReminder = true
+        if (window.electronAPI && window.electronAPI.readSystemSettings) {
+          const systemSettings = await window.electronAPI.readSystemSettings()
+          this.systemForm.interactionModeSupport = systemSettings?.interactionModeSupport === true
+          this.systemForm.taskCompletionReminder = systemSettings?.taskCompletionReminder !== false
+        }
         if (this.aid) {
           const agent = await getAgent(this.aid)
           this.agentForm = {
@@ -219,6 +255,26 @@ export default {
         this.$message.error(error.message || '配置加载失败')
       } finally {
         this.loading = false
+      }
+    },
+    async saveSystem() {
+      if (!window.electronAPI || !window.electronAPI.saveSystemSettings) {
+        this.$message.warning('当前环境不支持保存系统配置')
+        return
+      }
+      this.savingSystem = true
+      try {
+        const saved = await window.electronAPI.saveSystemSettings(this.systemForm)
+        if (saved) {
+          this.systemForm.interactionModeSupport = saved.interactionModeSupport === true
+          this.systemForm.taskCompletionReminder = saved.taskCompletionReminder !== false
+        }
+        this.$message.success('系统配置已保存')
+        this.$emit('system-saved', saved || { ...this.systemForm })
+      } catch (error) {
+        this.$message.error(error.message || '系统配置保存失败')
+      } finally {
+        this.savingSystem = false
       }
     },
     async saveAgent() {
@@ -395,11 +451,6 @@ export default {
   transition: background 0.15s, color 0.15s;
 }
 
-.settings-nav button:hover {
-  background: #eef3fa;
-  color: #3b6fb6;
-}
-
 .settings-nav button.active {
   background: #eaf2fd;
   color: #3569ad;
@@ -463,10 +514,46 @@ export default {
   background: #f7f8fa;
 }
 
+.system-setting-row {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid #e5e9ef;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.system-setting-row + .system-setting-row {
+  margin-top: 12px;
+}
+
+.system-setting-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.system-setting-copy b {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.system-setting-copy span {
+  color: #8a94a3;
+  font-size: 12px;
+}
+
+.system-config-actions,
 .agent-config-actions {
   display: flex;
   justify-content: flex-end;
-  padding-top: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid #edf0f4;
 }
 

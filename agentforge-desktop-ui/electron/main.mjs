@@ -16,7 +16,26 @@ const TOKEN_HEADER = 'X-AgentForge-Desktop-Token'
 let backend = null
 let quitting = false
 
+// 主窗口引用与任务完成提醒状态：窗口由 createWindow 赋值，供提醒逻辑复用。
+let mainWindow = null
+let attentionBounceId = null        // macOS Dock 跳动请求 ID；null 表示当前没有待取消的请求
+let attentionTimer = null           // 连续跳动的续跳定时器
+let attentionPulsesLeft = 0         // 本轮剩余跳动次数
+let lastReminderAt = 0              // 上一次提醒时间，用于短时间内合并多次提醒
+const REMINDER_WINDOW_MS = 3000
+// 任务完成提醒的跳动节奏：连续跳 REMINDER_BOUNCE_TIMES 次，每次间隔 REMINDER_BOUNCE_INTERVAL_MS。
+// macOS 的 informational 单次只跳约 1 秒，靠间隔续跳形成“多次跳动”的观感。
+const REMINDER_BOUNCE_TIMES = 3
+const REMINDER_BOUNCE_INTERVAL_MS = 1600
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// 桌面数据根目录：与后端 --agentforge.desktop.root-dir 指向同一目录，保证配置与数据库同源。
+function desktopRootDir() {
+  return process.env.AGENTFORGE_DESKTOP_ROOT_DIR
+    ? path.resolve(process.env.AGENTFORGE_DESKTOP_ROOT_DIR)
+    : path.join(app.getPath('home'), '.agentforge-desktop')
+}
 
 // 1、准备后端运行环境：分配可用端口，并根据开发/打包环境定位 Java 与服务端 JAR。
 async function findFreePort() {
@@ -126,9 +145,7 @@ async function startBackend() {
 
   const port = Number(process.env.AGENTFORGE_DESKTOP_PORT) || await findFreePort()
   const token = randomBytes(32).toString('hex')
-  const rootDir = process.env.AGENTFORGE_DESKTOP_ROOT_DIR
-    ? path.resolve(process.env.AGENTFORGE_DESKTOP_ROOT_DIR)
-    : path.join(app.getPath('home'), '.agentforge-desktop')
+  const rootDir = desktopRootDir()
   fs.mkdirSync(rootDir, { recursive: true })
 
   const baseUrl = `http://127.0.0.1:${port}`
@@ -285,6 +302,13 @@ function createWindow() {
     }
   })
 
+  mainWindow = win
+  bindAttentionToWindow(win)
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+    cancelTaskAttention()
+  })
+
   if (DEV_URL) void win.loadURL(DEV_URL)
   else void win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
 }
@@ -324,6 +348,127 @@ function describeResources(filePaths) {
   return (filePaths || []).map(describeResource).filter(Boolean)
 }
 
+function systemSettingsPath() {
+  return path.join(desktopRootDir(), 'conf', 'settings.json')
+}
+
+const DEFAULT_SETTINGS = {
+  interactionModeSupport: false,
+  taskCompletionReminder: true
+}
+
+// 白名单规范化：未知字段丢弃，类型错误回退默认值。
+function normalizeSettings(value) {
+  const input = value && typeof value === 'object' ? value : {}
+  return {
+    interactionModeSupport: input.interactionModeSupport === true,
+    // 任务完成提醒默认开启：只有用户显式关闭（写入 false）才不提醒。
+    taskCompletionReminder: input.taskCompletionReminder !== false
+  }
+}
+
+function readSystemSettingsFile() {
+  try {
+    return normalizeSettings(JSON.parse(fs.readFileSync(systemSettingsPath(), 'utf8')))
+  } catch (_error) {
+    return normalizeSettings(DEFAULT_SETTINGS)
+  }
+}
+
+// 停止续跳并取消尚未结束的跳动请求。
+function stopAttentionLoop() {
+  if (attentionTimer) {
+    clearTimeout(attentionTimer)
+    attentionTimer = null
+  }
+  attentionPulsesLeft = 0
+  if (attentionBounceId !== null && app.dock) {
+    app.dock.cancelBounce(attentionBounceId)
+  }
+  attentionBounceId = null
+}
+
+// 触发一次搏动：macOS 用 Dock 跳动，Windows 用任务栏闪烁。
+// 返回 false 表示系统拒绝（例如用户其实就在应用里），此时应终止整轮续跳。
+function pulseAttention(win) {
+  if (!win || win.isDestroyed()) return false
+  if (win.isFocused()) return false
+  if (process.platform === 'darwin' && app.dock) {
+    if (attentionBounceId !== null) {
+      app.dock.cancelBounce(attentionBounceId)
+      attentionBounceId = null
+    }
+    const id = app.dock.bounce('informational')
+    // 实测返回 0 也是有效 ID，不能用真假值判断。
+    // 返回 -1 表示应用仍处于前台活跃态（系统拒绝跳动，图标本来就在用户眼前）。
+    if (!Number.isInteger(id) || id < 0) return false
+    attentionBounceId = id
+    return true
+  }
+  win.flashFrame(true)
+  return true
+}
+
+// 任务完成提醒：只在用户离开应用时，让 Dock / 任务栏图标连续给出多次注意力提示。
+function requestTaskAttention() {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return { ok: false, reason: 'no-window' }
+  if (!readSystemSettingsFile().taskCompletionReminder) return { ok: false, reason: 'disabled' }
+  // 先自行判断应用是否在前台，不依赖 bounce 返回 -1（该返回值在部分环境下不可靠）
+  if (win.isFocused()) return { ok: false, reason: 'focused' }
+
+  const now = Date.now()
+  if (now - lastReminderAt < REMINDER_WINDOW_MS) return { ok: false, reason: 'throttled' }
+
+  // 新提醒接管旧提醒：先清掉上一轮未跳完的节奏，避免两轮叠加
+  stopAttentionLoop()
+
+  if (!pulseAttention(win)) {
+    // 被系统拒绝（应用仍活跃）：不占用节流窗口，用户真正切走后仍能提醒
+    lastReminderAt = 0
+    return { ok: false, reason: 'app-active' }
+  }
+
+  lastReminderAt = now
+  attentionPulsesLeft = REMINDER_BOUNCE_TIMES - 1
+  scheduleNextPulse()
+  return { ok: true, times: REMINDER_BOUNCE_TIMES }
+}
+
+// 安排下一次搏动；用户回到窗口或次数用尽时自然结束。
+function scheduleNextPulse() {
+  if (attentionPulsesLeft <= 0) return
+  attentionTimer = setTimeout(() => {
+    attentionTimer = null
+    const win = mainWindow
+    // 用户已回来 / 窗口没了 / 提醒被取消 / 中途关掉了开关 → 终止续跳
+    if (!win || win.isDestroyed() || win.isFocused() || !readSystemSettingsFile().taskCompletionReminder) {
+      stopAttentionLoop()
+      return
+    }
+    if (!pulseAttention(win)) {
+      stopAttentionLoop()
+      return
+    }
+    attentionPulsesLeft -= 1
+    scheduleNextPulse()
+  }, REMINDER_BOUNCE_INTERVAL_MS)
+  // 定时器不应阻止进程退出
+  if (attentionTimer.unref) attentionTimer.unref()
+}
+
+function cancelTaskAttention() {
+  stopAttentionLoop()
+  const win = mainWindow
+  if (win && !win.isDestroyed() && process.platform !== 'darwin') win.flashFrame(false)
+  lastReminderAt = 0
+}
+
+// 用户回到窗口即停止闪烁，避免 Windows 上出现“闪了停不下来”。
+function bindAttentionToWindow(win) {
+  win.on('focus', () => cancelTaskAttention())
+}
+
 function registerIpc() {
   ipcMain.handle('local-agent:server-info', () => ({
     baseUrl: backend.baseUrl,
@@ -333,6 +478,16 @@ function registerIpc() {
     arch: process.arch,
     runtime: backend.external ? 'external-java' : 'embedded-java'
   }))
+  ipcMain.handle('local-agent:read-system-settings', () => readSystemSettingsFile())
+  ipcMain.handle('local-agent:save-system-settings', async (_event, settings) => {
+    const target = systemSettingsPath()
+    const normalized = normalizeSettings(settings)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
+    return normalized
+  })
+  ipcMain.handle('local-agent:notify-task-done', () => requestTaskAttention())
+  ipcMain.handle('local-agent:cancel-task-attention', () => cancelTaskAttention())
   ipcMain.handle('local-agent:open-path', async (_event, target) => {
     return shell.openPath(String(target || backend.workspace || app.getPath('home')))
   })

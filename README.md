@@ -178,7 +178,7 @@ The embedded migrator applies versioned SQL automatically at startup, records ea
 ## Documentation
 
 - [Design and implementation notes](docs/桌面版agent工作台设计实现/README.md)
-- [Local resources and multimodal capabilities](docs/桌面版agent工作台设计实现/核心后端服务设计/文件上传与模态识别能力/AgentForge-Desktop本地资源输入与模态识别实现.md)
+- [Local resources and multimodal capabilities](docs/桌面版agent工作台设计实现/核心后端服务设计/输入框交互场景/文件上传与模态识别能力/AgentForge-Desktop本地资源输入与模态识别实现.md)
 - [Changelog](CHANGELOG.md)
 - [Local development and verification commands](docs/桌面版agent工作台设计实现/快捷命令与联调验证.md)
 - [Embedded desktop startup guide](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/桌面端内置启动-desktop-dev-embedded.md)

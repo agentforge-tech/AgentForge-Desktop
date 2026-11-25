@@ -16,8 +16,13 @@ export const RENDER_MODES = [
   }
 ]
 
-export const DEFAULT_RENDER_MODE = 'debug'
+// 桌面端默认展示发布模式，调试模式仅在开启“交互模式支持切换”后手动选择。
+export const DEFAULT_RENDER_MODE = 'elegant'
 
 export function getRenderMode(key) {
-  return RENDER_MODES.find((m) => m.key === key) || RENDER_MODES[0]
+  return (
+    RENDER_MODES.find((m) => m.key === key) ||
+    RENDER_MODES.find((m) => m.key === DEFAULT_RENDER_MODE) ||
+    RENDER_MODES[0]
+  )
 }

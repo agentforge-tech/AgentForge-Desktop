@@ -5,6 +5,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getLocalServerInfo() {
     return ipcRenderer.invoke('local-agent:server-info')
   },
+  readSystemSettings() {
+    return ipcRenderer.invoke('local-agent:read-system-settings')
+  },
+  saveSystemSettings(settings) {
+    return ipcRenderer.invoke('local-agent:save-system-settings', settings)
+  },
   openPath(target) {
     return ipcRenderer.invoke('local-agent:open-path', target)
   },
@@ -31,6 +37,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getPathForFile(file) {
     return webUtils.getPathForFile(file)
+  },
+  notifyTaskDone() {
+    return ipcRenderer.invoke('local-agent:notify-task-done')
+  },
+  cancelTaskAttention() {
+    return ipcRenderer.invoke('local-agent:cancel-task-attention')
   },
   onBackendExit(callback) {
     const listener = (_event, payload) => callback(payload)

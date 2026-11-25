@@ -13,7 +13,7 @@
             <b>{{ currentAgent ? currentAgent.name : 'AgentForge Desktop' }}</b>
           </div>
         </div>
-        <el-button size="small" class="new-chat-btn" :class="{ active: !skillManagerOpen }" @click="newChat">
+        <el-button size="small" class="new-chat-btn" :class="{ active: newChatHighlighted }" @click="newChat">
           <svg class="sidebar-action-icon" viewBox="0 0 20 20" aria-hidden="true">
             <circle cx="10" cy="10" r="7.25" />
             <path d="M10 6.5v7M6.5 10h7" />
@@ -91,11 +91,44 @@
           </button>
           <div v-show="workspaceOpen" class="session-panel-body">
           <div v-for="group in workspaceGroups" :key="'workspace-' + group.id" class="workspace-tree-group">
-            <div class="workspace-tree-head" role="button" tabindex="0" @click="toggleWorkspaceGroup(group.id)" @keydown.enter="toggleWorkspaceGroup(group.id)">
-              <i class="el-icon-folder"></i>
+            <div
+              class="workspace-tree-head"
+              :class="{ 'is-menu-open': openWorkspaceMenuId === group.id }"
+              role="button"
+              tabindex="0"
+              @click="toggleWorkspaceGroup(group.id)"
+              @keydown.enter="toggleWorkspaceGroup(group.id)"
+            >
+              <!-- 折叠态：闭合文件夹 -->
+              <svg
+                v-if="!expandedWorkspaceIds.includes(group.id)"
+                class="workspace-tree-icon"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+              >
+                <path d="M2.4 12.2V3.75A1.35 1.35 0 0 1 3.75 2.4h1.1c.42 0 .82.17 1.1.47l.55.6c.28.3.68.47 1.1.47h3.9a1.35 1.35 0 0 1 1.35 1.35v6.91a1.35 1.35 0 0 1-1.35 1.35H3.75A1.35 1.35 0 0 1 2.4 12.2z" />
+                <path d="M2.4 6.9h10.45" />
+              </svg>
+              <!-- 展开态：打开文件夹 -->
+              <svg
+                v-else
+                class="workspace-tree-icon"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+              >
+                <path d="M2.2 11.5V3.45A1.25 1.25 0 0 1 3.45 2.2h.85c.47 0 .92.2 1.24.54l.42.45c.32.34.77.54 1.24.54h4.2a1.25 1.25 0 0 1 1.25 1.25v1.42" />
+                <path d="M5.05 6.4h8.95l-1.7 5.1H2.2z" />
+              </svg>
               <span class="workspace-tree-name" :title="group.folderPath">{{ group.name }}</span>
               <i class="workspace-tree-chevron" :class="expandedWorkspaceIds.includes(group.id) ? 'el-icon-arrow-down' : 'el-icon-arrow-right'"></i>
-              <el-dropdown class="workspace-more" trigger="click" placement="bottom-start" @command="handleWorkspaceCommand($event, group)" @click.native.stop>
+              <el-dropdown
+                class="workspace-more"
+                trigger="click"
+                placement="bottom-start"
+                @command="handleWorkspaceCommand($event, group)"
+                @visible-change="onWorkspaceMenuVisible(group.id, $event)"
+                @click.native.stop
+              >
                 <span class="workspace-more-trigger" title="更多操作"><i class="el-icon-more"></i></span>
                 <el-dropdown-menu slot="dropdown" class="workspace-action-menu">
                   <el-dropdown-item command="open" icon="el-icon-folder-opened">打开文件夹</el-dropdown-item>
@@ -112,8 +145,8 @@
                 @keydown.stop
               >
                 <svg class="workspace-new-chat-icon" viewBox="0 0 16 16" aria-hidden="true">
-                  <circle cx="8" cy="8" r="6.25" />
-                  <path d="M8 5.25v5.5M5.25 8h5.5" />
+                  <path d="M12.9 3.05H3.1a1.05 1.05 0 0 0-1.05 1.05v5.7c0 .58.47 1.05 1.05 1.05h.75v2.2l2.5-2.2h6.5a1.05 1.05 0 0 0 1.05-1.05v-5.7A1.05 1.05 0 0 0 12.9 3.05Z" />
+                  <path d="M8 4.75v4.4M5.8 6.95h4.4" />
                 </svg>
               </button>
             </div>
@@ -156,26 +189,32 @@
       <div class="session-footer">
         <span class="status-dot" :class="{ ok: backendConnected }"></span>
         <span class="status-text">{{ backendConnected ? '本地服务已连接' : '本地服务未连接' }}</span>
-        <el-button type="text" size="mini" @click="openDataDir">打开目录</el-button>
+        <el-button size="mini" icon="el-icon-setting" circle title="工作台设置" @click="settingsOpen = true" />
       </div>
     </aside>
 
     <SkillManager v-if="skillManagerOpen" />
-    <main v-else class="chat-main">
+    <main v-show="!skillManagerOpen" class="chat-main">
       <header class="chat-header">
         <div class="chat-title">
           <span>{{ title }}</span>
-          <span v-if="currentAgent" class="chat-agent-name">{{ currentAgent.name }}</span>
         </div>
         <div class="chat-toolbar">
-          <el-select v-model="mode" size="mini" class="mode-select" @change="onModeChange">
+          <el-select
+            v-if="modeSwitchEnabled"
+            v-model="mode"
+            size="mini"
+            class="mode-select"
+            title="交互模式"
+            @change="onModeChange"
+          >
             <el-option v-for="item in renderModes" :key="item.key" :label="item.label" :value="item.key" />
           </el-select>
-          <el-button size="mini" icon="el-icon-setting" circle title="工作台设置" @click="settingsOpen = true" />
         </div>
       </header>
 
-      <div class="conversation-stage" :class="{ 'has-messages': messages.length }">
+      <div class="conversation-stage" :class="{ 'has-messages': messages.length, 'has-navigator': hasNavigator }">
+        <div class="chat-feed-shell">
         <section ref="feed" class="chat-feed agent-debug-feed" @scroll.passive="onFeedScroll">
         <div class="chat-inner agent-debug-chat-inner">
           <div v-if="!messages.length" class="welcome">
@@ -184,7 +223,13 @@
           </div>
 
           <template v-for="(message, index) in messages">
-            <div v-if="message.role === 'user'" :key="'u-' + index" class="agent-debug-message-row agent-debug-message-row--user">
+            <div
+              v-if="message.role === 'user'"
+              :key="'u-' + index"
+              class="agent-debug-message-row agent-debug-message-row--user"
+              :class="{ 'is-anchor-flash': navigatorFlashKey === 'u-' + index }"
+              :data-anchor-key="'u-' + index"
+            >
               <div class="agent-debug-user-block">
                 <div class="agent-debug-user-bubble">
                   <UserMessageContent
@@ -218,6 +263,17 @@
           </template>
         </div>
         </section>
+
+        <MessageNavigator
+          v-if="hasNavigator"
+          :anchors="anchorList"
+          :active-key="navigatorActiveKey"
+          :has-new="navigatorHasNew"
+          :compact="navigatorCompact"
+          @jump="scrollToAnchor"
+          @jump-latest="jumpToLatest"
+        />
+        </div>
 
         <transition name="fade">
           <button v-if="isUserScrolledUp && messages.length" class="scroll-bottom" @click="scrollToBottom">
@@ -373,6 +429,7 @@
       @close="settingsOpen = false"
       @select-agent="selectAgent"
       @saved="onSettingsSaved"
+      @system-saved="onSystemSettingsSaved"
     />
   </div>
 </template>
@@ -387,7 +444,9 @@ import ComposerInput from '../../components/ComposerInput.vue'
 import ComposerAddMenu from '../../components/ComposerAddMenu.vue'
 import ComposerResourceChip from '../../components/ComposerResourceChip.vue'
 import UserMessageContent from '../../components/UserMessageContent.vue'
+import MessageNavigator from '../../components/MessageNavigator.vue'
 import chatAutoScroll from '../../utils/chatAutoScroll'
+import chatAnchorNav from '../../utils/chatAnchorNav'
 import { fetchAgents, upsertAgent } from '../../api/agent'
 import { fetchModels } from '../../api/model'
 import {
@@ -419,7 +478,7 @@ import {
   resolveSessionTitle
 } from '../../api/session'
 import { replaySessionMessages } from '../../utils/sessionReplay'
-import { RENDER_MODES } from '../../modes'
+import { RENDER_MODES, DEFAULT_RENDER_MODE } from '../../modes'
 import { request } from '../../api/client'
 import { deleteWorkspace, fetchWorkspaces, renameWorkspace } from '../../api/workspace'
 import agentLogo from '../../assets/agent-logo.png'
@@ -438,8 +497,9 @@ function parseSessionDate(item) {
 
 export default {
   name: 'ChatWorkbench',
-  components: { AgentMessageContent, ConfigDrawer, InterruptCard, WorkspacePicker, SkillManager, ComposerInput, ComposerAddMenu, ComposerResourceChip, UserMessageContent },
-  mixins: [chatAutoScroll],
+  components: { AgentMessageContent, ConfigDrawer, InterruptCard, WorkspacePicker, SkillManager, ComposerInput, ComposerAddMenu, ComposerResourceChip, UserMessageContent, MessageNavigator },
+  // chatAnchorNav 需在 chatAutoScroll 之后：它复用 scrollToBottom / followScroll 状态
+  mixins: [chatAutoScroll, chatAnchorNav],
   data: () => ({
     brandLogo: agentLogo,
     agents: [],
@@ -465,17 +525,20 @@ export default {
     composing: false,
     sessionLoadVersion: 0,
     sessionRefreshTimer: null,
-    mode: localStorage.getItem(MODE_KEY) || 'debug',
+    mode: localStorage.getItem(MODE_KEY) || DEFAULT_RENDER_MODE,
+    interactionModeSupport: false,
     settingsOpen: false,
     backendConnected: false,
     workspace: '',
     workspaces: [],
     selectedWorkspaceId: null,
     expandedWorkspaceIds: [],
+    openWorkspaceMenuId: null,
     workspaceOpen: true,
     pinnedTasksOpen: true,
     normalTasksOpen: true,
     skillManagerOpen: false,
+    newChatActive: true,
     pendingAppends: [],
     deferredAppends: [],
     sessionContextTimer: null,
@@ -485,6 +548,10 @@ export default {
   computed: {
     renderModes() {
       return RENDER_MODES
+    },
+    // 右上角交互模式切换是否可用，由系统配置 interactionModeSupport 控制。
+    modeSwitchEnabled() {
+      return this.interactionModeSupport === true
     },
     availableModels() {
       if (!this.currentAgent) return this.models
@@ -592,6 +659,10 @@ export default {
     welcomeText() {
       const config = (this.currentAgent && this.currentAgent.experConfig) || {}
       return config.welcomeText || '今天想解决什么问题？'
+    },
+    // 左侧导航为单选：技能管理打开时「新建任务」不再保持选中态。
+    newChatHighlighted() {
+      return this.newChatActive && !this.skillManagerOpen
     }
   },
   watch: {
@@ -618,9 +689,14 @@ export default {
     },
     selectedWorkspaceId() {
       this.scheduleSessionContextUpdate()
+    },
+    // 只监听长度：避免对流式内容做深度遍历（那会逐 token 触发重算）
+    'messages.length'() {
+      this.scheduleAnchorSync()
     }
   },
   created() {
+    this.loadSystemSettings()
     this.bootstrap()
     this.checkBackend()
     this.scheduleSessionRefresh()
@@ -750,6 +826,7 @@ export default {
       this.pendingAppends = []
       this.deferredAppends = []
       this.skillManagerOpen = false
+      this.newChatActive = false
       this.activeSessionId = item.id
       this.sessionId = item.sessionId
       this.sessionTitle = item.title
@@ -759,6 +836,7 @@ export default {
       this.draft = ''
       this.composerResources = []
       this.messages = []
+      this.resetAnchorNav()
       try {
         const [records, detail] = await Promise.all([
           fetchSessionMessages(item.id),
@@ -791,11 +869,16 @@ export default {
               if (version !== this.sessionLoadVersion) return
               if (this.controller === controller) this.controller = null
               this.running = lastAssistant.status === 'waiting'
-              if (!this.running) this.loadSessions()
+              if (!this.running) {
+                this.loadSessions()
+                this.notifyTaskDone(lastAssistant)
+              }
             })
         }
         this.resetScrollFollow()
         this.scroll()
+        this.measureNavigatorSize()
+        this.commitAnchors({ rebuild: true })
       } catch (error) {
         if (version === this.sessionLoadVersion) this.$message.error(error.message || '会话加载失败')
       } finally {
@@ -816,6 +899,7 @@ export default {
         this.controller = null
       }
       this.skillManagerOpen = false
+      this.newChatActive = true
       this.activeSessionId = null
       this.sessionId = ''
       this.sessionTitle = ''
@@ -829,17 +913,15 @@ export default {
       this.pendingAppends = []
       this.deferredAppends = []
       this.running = false
+      this.resetAnchorNav()
       this.refreshModelSelection()
       this.$nextTick(() => {
         if (this.$refs.composerInput) this.$refs.composerInput.focus()
       })
     },
     openSkillManager() {
-      if (this.running) {
-        this.$message.warning('请先结束当前任务')
-        return
-      }
-      this.skillManagerOpen = true
+      // 任务执行中也可查看技能：只切换右侧视图，不打断进行中的会话流。
+      this.skillManagerOpen = !this.skillManagerOpen
     },
     isSessionRunning(item) {
       if (!item) return false
@@ -1220,7 +1302,8 @@ export default {
         error: '',
         startedAt: Date.now(),
         finishedAt: null,
-        elapsedMs: null
+        elapsedMs: null,
+        reminderSent: false
       }
     },
     async consumeTask(answer, questionText, controller = this.controller) {
@@ -1284,6 +1367,8 @@ export default {
       this.permissionOpen = false
       this.resetScrollFollow()
       this.scroll()
+      // 立即出现新刻度：用户已提交即应看到"这一轮"存在
+      this.commitAnchors()
       try {
         const submitted = await submitChatTask({
           aid: this.selectedAid,
@@ -1306,6 +1391,7 @@ export default {
         if (submitted && submitted.sessionPk) this.activeSessionId = submitted.sessionPk
         if (submitted && submitted.title && !this.sessionTitle) this.sessionTitle = submitted.title
         if (submitted && submitted.sessionPk) {
+          this.newChatActive = false
           await this.loadSessions({ silent: true })
           this.scheduleSessionContextUpdate()
         }
@@ -1324,6 +1410,8 @@ export default {
           if (!waiting) this.restoreDeferredAppends()
           this.scroll()
           if (!waiting) this.loadSessions()
+          // 兜底：网络中断等场景可能收不到 error 事件，但仍应给出任务结束信号
+          if (!waiting) this.notifyTaskDone(answer)
         }
       }
     },
@@ -1365,6 +1453,7 @@ export default {
             promoteLastResponseSegment(answer)
             answer.status = 'success'
             this.finishParts(answer)
+            this.notifyTaskDone(answer)
           }
           break
         case 'error':
@@ -1373,11 +1462,14 @@ export default {
           answer.status = 'error'
           answer.error = typeof event.content === 'string' ? event.content : JSON.stringify(event.content || '生成失败')
           this.finishParts(answer)
+          this.notifyTaskDone(answer)
           break
         default:
           break
       }
       this.scroll()
+      // 节流同步锚点：流式每个事件都会走到这里，200ms 合并一次
+      this.scheduleAnchorSync()
     },
     applyInterrupt(answer, event) {
       const part = reduceInterruptEvent(answer, event)
@@ -1450,6 +1542,15 @@ export default {
         part.duration = Math.max(100, Date.now() - (part.startedAt || Date.now()))
       }
     },
+    // 任务结束时的图标提醒：同一轮只上报一次；浏览器模式（无 electronAPI）静默跳过。
+    notifyTaskDone(answer) {
+      if (!answer || answer.reminderSent) return
+      answer.reminderSent = true
+      const api = window.electronAPI
+      if (!api || typeof api.notifyTaskDone !== 'function') return
+      // 提醒失败不影响业务：不弹错、不打断对话
+      api.notifyTaskDone().catch(() => {})
+    },
     finishParts(answer) {
       finishResponseSegments(answer)
       answer.parts.forEach((part) => {
@@ -1497,6 +1598,7 @@ export default {
           if (!waiting) this.restoreDeferredAppends()
           this.scroll()
           if (!waiting) this.loadSessions()
+          if (!waiting) this.notifyTaskDone(answer)
         }
       }
     },
@@ -1628,10 +1730,34 @@ export default {
         this.$message.error(error.message || '停止失败')
       } finally {
         this.stopping = false
+        this.commitAnchors()
       }
     },
     onModeChange(value) {
       localStorage.setItem(MODE_KEY, value)
+    },
+    async loadSystemSettings() {
+      if (!(window.electronAPI && window.electronAPI.readSystemSettings)) {
+        // 非 Electron 环境（如浏览器直开）按未开启处理，默认发布模式。
+        this.applySystemSettings({ interactionModeSupport: false })
+        return
+      }
+      try {
+        this.applySystemSettings(await window.electronAPI.readSystemSettings())
+      } catch (_error) {
+        this.applySystemSettings({ interactionModeSupport: false })
+      }
+    },
+    applySystemSettings(settings) {
+      this.interactionModeSupport = settings?.interactionModeSupport === true
+      // 配置关闭时回到默认发布模式，并清掉本地偏好，避免下次启动又恢复成调试模式。
+      if (!this.interactionModeSupport) {
+        localStorage.removeItem(MODE_KEY)
+        this.mode = DEFAULT_RENDER_MODE
+      }
+    },
+    onSystemSettingsSaved(settings) {
+      this.applySystemSettings(settings)
     },
     async onSettingsSaved(savedItem) {
       try {
@@ -1659,13 +1785,6 @@ export default {
         this.$message.warning('复制失败，请手动选择文本')
       }
     },
-    async openDataDir() {
-      if (window.electronAPI && window.electronAPI.openPath) {
-        await window.electronAPI.openPath(this.workspace)
-      } else {
-        this.$message.info(this.workspace || '浏览器模式不支持打开目录')
-      }
-    },
     selectWorkspace(item) {
       if (this.sessionId || !item) return
       this.selectedWorkspaceId = item.id
@@ -1686,6 +1805,10 @@ export default {
       const index = this.expandedWorkspaceIds.indexOf(id)
       if (index >= 0) this.expandedWorkspaceIds.splice(index, 1)
       else this.expandedWorkspaceIds.push(id)
+    },
+    onWorkspaceMenuVisible(id, visible) {
+      if (visible) this.openWorkspaceMenuId = id
+      else if (this.openWorkspaceMenuId === id) this.openWorkspaceMenuId = null
     },
     startWorkspaceChat(workspace) {
       if (!workspace) return

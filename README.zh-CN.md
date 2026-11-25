@@ -178,7 +178,7 @@ cd agentforge-desktop-server
 ## 文档
 
 - [设计与实现方案](docs/桌面版agent工作台设计实现/README.md)
-- [本地资源输入与模态识别实现](docs/桌面版agent工作台设计实现/核心后端服务设计/文件上传与模态识别能力/AgentForge-Desktop本地资源输入与模态识别实现.md)
+- [本地资源输入与模态识别实现](docs/桌面版agent工作台设计实现/核心后端服务设计/输入框交互场景/文件上传与模态识别能力/AgentForge-Desktop本地资源输入与模态识别实现.md)
 - [更新日志](CHANGELOG.md)
 - [快捷命令与联调验证](docs/桌面版agent工作台设计实现/快捷命令与联调验证.md)
 - [桌面端内置启动](docs/桌面版agent工作台设计实现/整体快捷流程梳理/本地调试/桌面端内置启动-desktop-dev-embedded.md)

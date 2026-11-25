@@ -120,11 +120,31 @@
 }
 
 .new-chat-btn:hover,
-.new-chat-btn:focus,
+.new-chat-btn:focus-visible,
 .new-chat-btn.active,
 .skill-manager-btn:hover,
-.skill-manager-btn:focus,
+.skill-manager-btn:focus-visible,
 .skill-manager-btn.active {
+  background: #e5e7ea;
+  color: #252a31;
+}
+
+/* 鼠标点击后的焦点不保留选中底色，左侧导航始终保持单选高亮 */
+.new-chat-btn:focus:not(:focus-visible):not(:hover) {
+  background: transparent;
+  color: #252a31;
+}
+
+.new-chat-btn.active:focus:not(:focus-visible) {
+  background: #e5e7ea;
+}
+
+.skill-manager-btn:focus:not(:focus-visible):not(:hover) {
+  background: transparent;
+  color: #4b5563;
+}
+
+.skill-manager-btn.active:focus:not(:focus-visible) {
   background: #e5e7ea;
   color: #252a31;
 }
@@ -426,7 +446,7 @@
   gap: 7px;
   border: 0;
   border-radius: 7px;
-  padding: 7px 8px;
+  padding: 7px 8px 7px 13px;
   background: transparent;
   color: #374151;
   font-size: 13px;
@@ -436,6 +456,18 @@
 
 .workspace-tree-head:hover {
   background: #f3f4f6;
+}
+
+.workspace-tree-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: #4b5563;
 }
 
 .workspace-more {
@@ -453,14 +485,17 @@
   border-radius: 5px;
   color: #667085;
   opacity: 0;
+  pointer-events: none;
   cursor: pointer;
   transition: opacity 0.15s ease, background-color 0.15s ease;
 }
 
 .workspace-tree-head:hover .workspace-more-trigger,
-.workspace-more-trigger:focus,
-.workspace-more-trigger[aria-expanded='true'] {
+.workspace-tree-head:focus-visible .workspace-more-trigger,
+.workspace-tree-head.is-menu-open .workspace-more-trigger,
+.workspace-more-trigger:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .workspace-more-trigger:hover {
@@ -479,9 +514,19 @@
   border-radius: 5px;
   background: transparent;
   color: #667085;
+  opacity: 0;
+  pointer-events: none;
   cursor: pointer;
   line-height: 1;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.workspace-tree-head:hover .workspace-new-chat,
+.workspace-tree-head:focus-visible .workspace-new-chat,
+.workspace-tree-head.is-menu-open .workspace-new-chat,
+.workspace-new-chat:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .workspace-new-chat:hover {
@@ -490,8 +535,8 @@
 }
 
 .workspace-new-chat-icon {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.35;
@@ -503,6 +548,7 @@
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
+  color: #2f343c;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -514,7 +560,7 @@
 }
 
 .workspace-tree-sessions {
-  margin-left: 12px;
+  margin-left: 17px;
   padding-left: 8px;
   border-left: 1px solid #e5e7eb;
 }
@@ -554,6 +600,20 @@
   flex: 1;
 }
 
+.session-footer .el-button {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  color: #667085;
+}
+
+.session-footer .el-button:hover,
+.session-footer .el-button:focus {
+  color: #4f46e5;
+}
+
 .chat-main {
   flex: 1;
   min-width: 0;
@@ -589,11 +649,6 @@
   white-space: nowrap;
 }
 
-.chat-agent-name {
-  font-size: 12px;
-  color: #9ca3af;
-}
-
 .chat-toolbar {
   display: flex;
   align-items: center;
@@ -620,6 +675,40 @@
   min-height: 0;
   flex: 1;
   flex-direction: column;
+}
+
+/*
+ * 缩略导航的定位容器：与滚动容器等高、自身不滚动。
+ * 必须是 column 布局：原 .chat-feed 是 .conversation-stage（column）的直接子项，
+ * 其 flex: 1 表示"纵向填充"；若 shell 用默认 row，flex: 1 会变成横向填充，
+ * 导致新建会话空态下的欢迎语与输入框宽度错乱。
+ */
+.chat-feed-shell {
+  position: relative;
+  display: flex;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.conversation-stage:not(.has-messages) .chat-feed-shell {
+  flex: 0 0 auto;
+}
+
+/*
+ * 轨道位于对话区最左侧，「回到底部」在右下角，二者不重叠，无需让位。
+ * 轨道可见时只缩小左侧内边距，避免刻度压住正文。
+ */
+.conversation-stage.has-navigator .chat-feed.agent-debug-feed {
+  padding-left: 44px;
+}
+
+/* 跳转后的目标轮短暂高亮，帮助用户确认落点 */
+.agent-debug-message-row.is-anchor-flash {
+  border-radius: 8px;
+  background: rgba(59, 111, 182, 0.08);
+  transition: background-color 0.6s ease;
 }
 
 .conversation-stage:not(.has-messages) {
