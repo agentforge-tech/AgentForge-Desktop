@@ -14,6 +14,10 @@
     "build:server": "node scripts/build/build-server.mjs",
     "build:server:clean": "node scripts/build/build-server.mjs --clean",
     "runtime:server": "node scripts/build/prepare-server.mjs",
+    "runtime:rg": "node scripts/build/prepare-rg.mjs",
+    "runtime:rg:mac-arm64": "node scripts/build/prepare-rg.mjs mac-arm64",
+    "runtime:rg:mac-x64": "node scripts/build/prepare-rg.mjs mac-x64",
+    "runtime:rg:win-x64": "node scripts/build/prepare-rg.mjs win-x64",
     "runtime:jre:mac-arm64": "node scripts/build/prepare-jre.mjs mac-arm64",
     "runtime:jre:mac-x64": "node scripts/build/prepare-jre.mjs mac-x64",
     "runtime:jre:win-x64": "node scripts/build/prepare-jre.mjs win-x64",
@@ -60,6 +64,10 @@
       {
         "from": "runtime/jre",
         "to": "runtime/jre"
+      },
+      {
+        "from": "runtime/tools",
+        "to": "runtime/tools"
       }
     ],
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",

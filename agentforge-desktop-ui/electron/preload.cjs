@@ -44,6 +44,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cancelTaskAttention() {
     return ipcRenderer.invoke('local-agent:cancel-task-attention')
   },
+  listEnhancements() {
+    return ipcRenderer.invoke('local-agent:enhancements:list')
+  },
+  detectEnhancement(id) {
+    return ipcRenderer.invoke('local-agent:enhancements:detect', { id })
+  },
+  installEnhancement(id, mode) {
+    return ipcRenderer.invoke('local-agent:enhancements:install', { id, mode })
+  },
+  restartBackend() {
+    return ipcRenderer.invoke('local-agent:enhancements:restart-backend')
+  },
+  repairEnhancementPath(id) {
+    return ipcRenderer.invoke('local-agent:enhancements:repair-path', { id })
+  },
   onBackendExit(callback) {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('local-agent:backend-exit', listener)

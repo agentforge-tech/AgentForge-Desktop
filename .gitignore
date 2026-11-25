@@ -19,6 +19,7 @@ release/
 **/runtime/server/*.jar
 **/runtime/jre/
 **/runtime/template/
+**/runtime/tools/
 .cache/
 packaging.config.local.json
 

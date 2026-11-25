@@ -1,10 +1,19 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, Menu, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu, clipboard, net as electronNet } from 'electron'
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import net from 'node:net'
 import { fileURLToPath } from 'node:url'
+import {
+  detectRg,
+  ensureShellWrapper,
+  installRg,
+  listEnhancements,
+  resolveInShell,
+  resolveTarget,
+  toolPathEntries
+} from './enhancements.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DEV_URL = process.env.ELECTRON_RENDERER_URL || ''
@@ -68,6 +77,36 @@ function serverJar() {
   }
   return process.env.AGENTFORGE_DESKTOP_SERVER_JAR
     || path.join(process.cwd(), 'runtime', 'server', 'agentforge-desktop-server.jar')
+}
+
+// 内置能力工具目录：打包后位于 resources/runtime/tools，开发态位于 runtime/tools。
+function bundledToolsDir() {
+  if (app.isPackaged) return path.join(process.resourcesPath, 'runtime', 'tools')
+  return path.join(process.cwd(), 'runtime', 'tools')
+}
+
+// 组装增强能力的运行上下文，避免各处重复拼参数。
+// probeShell：检测时同时验证"Agent 工具的 shell 里能否解析到 rg"，
+// 因为后端进程由谁启动会决定 PATH，文件存在不代表 Agent 能用。
+function enhancementContext() {
+  return {
+    rootDir: desktopRootDir(),
+    bundledToolsDir: bundledToolsDir(),
+    probeShell: true
+  }
+}
+
+// 后端进程 PATH：前置增强工具目录 + 常见 GUI 缺失目录（方案 §7.1）。
+// GUI 启动的 Electron 拿不到 Homebrew/cargo 路径，用户“终端里能用、Agent 里不能”多由此产生。
+function backendPath() {
+  const entries = [...toolPathEntries(enhancementContext())]
+  if (process.platform === 'darwin') {
+    entries.push('/opt/homebrew/bin', '/usr/local/bin')
+    const home = app.getPath('home')
+    if (home) entries.push(path.join(home, '.cargo', 'bin'))
+  }
+  const existing = process.env.PATH || ''
+  return [...new Set(entries.filter(Boolean))].join(path.delimiter) + (existing ? path.delimiter + existing : '')
 }
 
 async function waitForBackend(baseUrl, token, child, timeoutMs = 60_000) {
@@ -149,6 +188,8 @@ async function startBackend() {
   fs.mkdirSync(rootDir, { recursive: true })
 
   const baseUrl = `http://127.0.0.1:${port}`
+  // Agent 工具命令的 shell：优先用自带 PATH 的包装脚本，保证 rg 等工具一定能被解析到。
+  const shellWrapper = process.platform === 'win32' ? '' : ensureShellWrapper(enhancementContext())
   const args = [
     '-Xms128m',
     `-Xmx${process.env.AGENTFORGE_DESKTOP_JAVA_XMX || '1536m'}`,
@@ -157,7 +198,8 @@ async function startBackend() {
     '--server.address=127.0.0.1',
     `--server.port=${port}`,
     `--agentforge.desktop.token=${token}`,
-    `--agentforge.desktop.root-dir=${rootDir}`
+    `--agentforge.desktop.root-dir=${rootDir}`,
+    ...(shellWrapper ? [`--agentforge.desktop.shell=${shellWrapper}`] : [])
   ]
 
   console.log(`[AgentForge] starting Java runtime: ${java} -jar ${jar}`)
@@ -165,7 +207,7 @@ async function startBackend() {
     cwd: rootDir,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
-    env: { ...process.env }
+    env: { ...process.env, PATH: backendPath() }
   })
   child.stdout?.on('data', (data) => process.stdout.write(`[desktop-server] ${data}`))
   child.stderr?.on('data', (data) => process.stderr.write(`[desktop-server] ${data}`))
@@ -207,6 +249,24 @@ async function stopBackend(timeoutMs = 5000) {
     child.once('exit', finish)
     child.kill('SIGTERM')
   })
+}
+
+// 重启本地后端：安装新工具后需要重建进程环境（PATH 在进程启动瞬间固化，方案 §7.3）。
+async function restartBackend() {
+  if (backend?.external) throw new Error('当前连接的是外部后端，无法在这里重启')
+  quitting = true
+  await stopBackend()
+  quitting = false
+  backend = await startBackend()
+  console.log(`[AgentForge] backend restarted: ${backend.baseUrl}`)
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('local-agent:server-info-changed', {
+      baseUrl: backend.baseUrl,
+      token: backend.token,
+      workspace: backend.workspace
+    })
+  }
+  return backend
 }
 
 // 4、创建桌面窗口：加载 preload 安全桥接和渲染页面，并管控外部链接跳转。
@@ -354,7 +414,26 @@ function systemSettingsPath() {
 
 const DEFAULT_SETTINGS = {
   interactionModeSupport: false,
-  taskCompletionReminder: true
+  taskCompletionReminder: true,
+  // 能力增强状态快照：仅用于设置页秒开时避免闪烁，事实以每次检测结果为准。
+  enhancements: {}
+}
+
+// 能力增强快照规范化：只保留已知字段，未知能力 / 未知字段一律丢弃。
+function normalizeEnhancements(value) {
+  const input = value && typeof value === 'object' ? value : {}
+  const result = {}
+  for (const [id, entry] of Object.entries(input)) {
+    if (!entry || typeof entry !== 'object') continue
+    result[id] = {
+      status: typeof entry.status === 'string' ? entry.status : 'unknown',
+      version: typeof entry.version === 'string' ? entry.version : '',
+      source: typeof entry.source === 'string' ? entry.source : 'none',
+      path: typeof entry.path === 'string' ? entry.path : '',
+      checkedAt: Number.isFinite(entry.checkedAt) ? entry.checkedAt : 0
+    }
+  }
+  return result
 }
 
 // 白名单规范化：未知字段丢弃，类型错误回退默认值。
@@ -363,7 +442,8 @@ function normalizeSettings(value) {
   return {
     interactionModeSupport: input.interactionModeSupport === true,
     // 任务完成提醒默认开启：只有用户显式关闭（写入 false）才不提醒。
-    taskCompletionReminder: input.taskCompletionReminder !== false
+    taskCompletionReminder: input.taskCompletionReminder !== false,
+    enhancements: normalizeEnhancements(input.enhancements)
   }
 }
 
@@ -372,6 +452,68 @@ function readSystemSettingsFile() {
     return normalizeSettings(JSON.parse(fs.readFileSync(systemSettingsPath(), 'utf8')))
   } catch (_error) {
     return normalizeSettings(DEFAULT_SETTINGS)
+  }
+}
+
+// 回写能力增强快照：只更新 enhancements 字段，保留用户其它系统配置。
+function saveEnhancementSnapshot(status) {
+  try {
+    const current = readSystemSettingsFile()
+    const target = systemSettingsPath()
+    const next = normalizeSettings({
+      ...current,
+      enhancements: { ...current.enhancements, [status.id]: status }
+    })
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  } catch (error) {
+    // 快照只是展示缓存，写失败不影响能力本身可用性。
+    console.warn('[AgentForge] failed to persist enhancement snapshot:', error?.message || error)
+  }
+}
+
+// 首次启动静默初始化：在后端启动之前把内置 rg 复制到用户级目录，保证 PATH 注入时已就绪。
+// 任何失败都只记录日志，不阻断应用启动（能力缺失会由设置页检测暴露）。
+async function initEnhancements() {
+  const context = enhancementContext()
+  try {
+    if (!resolveTarget()) {
+      const detected = detectRg(context)
+      console.warn(`[AgentForge] ripgrep not available for ${process.platform}/${process.arch}`)
+      saveEnhancementSnapshot(detected)
+      return detected
+    }
+
+    const detected = detectRg(context)
+    // 用户级已是本应用管理的二进制 → 直接采用，避免每次启动重复复制。
+    if (detected.status === 'ready' && detected.source === 'user') {
+      // 关键：二进制在但 Agent 的 shell 里找不到（典型是外部/IDEA 启动后端）→ 自动补写包装脚本。
+      const wrapper = ensureShellWrapper(context)
+      if (wrapper) {
+        const shellCheck = resolveInShell({ rootDir: context.rootDir })
+        console.log(
+          `[AgentForge] enhancement rg ${detected.version} ready; shell=${shellCheck.ok ? 'ok' : 'missing'} wrapper=${wrapper}`
+        )
+      }
+      saveEnhancementSnapshot(detected)
+      return detected
+    }
+
+    // 内置缺失时不联网：启动阶段禁止隐式网络请求，交由设置页由用户显式触发。
+    if (!toolPathEntries(context).length) {
+      console.warn('[AgentForge] bundled ripgrep missing; enhancement will report current status')
+      saveEnhancementSnapshot(detected)
+      return detected
+    }
+
+    // 系统已装旧版 / 仅剩内置版本时，统一落一份到用户级目录，保证版本与行为一致。
+    const installed = await installRg({ ...context, mode: 'bundled' })
+    saveEnhancementSnapshot(installed.status)
+    console.log(`[AgentForge] enhancement ready: rg ${installed.status.version} (${installed.status.path})`)
+    return installed.status
+  } catch (error) {
+    console.warn('[AgentForge] enhancement init failed:', error?.message || error)
+    return null
   }
 }
 
@@ -488,6 +630,48 @@ function registerIpc() {
   })
   ipcMain.handle('local-agent:notify-task-done', () => requestTaskAttention())
   ipcMain.handle('local-agent:cancel-task-attention', () => cancelTaskAttention())
+  ipcMain.handle('local-agent:enhancements:list', () => listEnhancements(enhancementContext()))
+  ipcMain.handle('local-agent:enhancements:detect', (_event, payload) => {
+    const id = String(payload?.id || 'rg')
+    if (id !== 'rg') throw new Error(`未知的增强能力：${id}`)
+    const status = detectRg(enhancementContext())
+    saveEnhancementSnapshot(status)
+    return status
+  })
+  ipcMain.handle('local-agent:enhancements:install', async (_event, payload) => {
+    const id = String(payload?.id || 'rg')
+    if (id !== 'rg') throw new Error(`未知的增强能力：${id}`)
+    const mode = ['auto', 'bundled', 'online', 'upgrade'].includes(payload?.mode) ? payload.mode : 'auto'
+    const result = await installRg({
+      ...enhancementContext(),
+      mode,
+      log: (line) => console.log(`[AgentForge] ${line}`),
+      // Electron 主进程的全局 fetch 不走系统代理，改用 net.fetch（遵循 PAC / 系统代理）。
+      fetchImpl: electronNet.fetch
+    })
+    saveEnhancementSnapshot(result.status)
+    return result
+  })
+  ipcMain.handle('local-agent:enhancements:restart-backend', async () => {
+    await restartBackend()
+    return { ok: true, baseUrl: backend?.baseUrl || '' }
+  })
+  // 修复 PATH：重写包装脚本，并返回 Agent 工具的 shell 当前能否解析到 rg。
+  ipcMain.handle('local-agent:enhancements:repair-path', () => {
+    const context = enhancementContext()
+    const wrapper = ensureShellWrapper(context)
+    const shellCheck = resolveInShell({ rootDir: context.rootDir })
+    const status = detectRg(context)
+    saveEnhancementSnapshot(status)
+    return {
+      wrapper,
+      shellOk: shellCheck.ok,
+      shellPath: shellCheck.path,
+      shellVersion: shellCheck.version,
+      shellReason: shellCheck.reason || '',
+      status
+    }
+  })
   ipcMain.handle('local-agent:open-path', async (_event, target) => {
     return shell.openPath(String(target || backend.workspace || app.getPath('home')))
   })
@@ -584,9 +768,11 @@ function registerIpc() {
   })
 }
 
-// 6、Electron 就绪后串联核心启动流程：启动后端 -> 注册 IPC -> 创建主窗口。
+// 6、Electron 就绪后串联核心启动流程：初始化能力工具 -> 启动后端 -> 注册 IPC -> 创建主窗口。
+// 能力初始化必须早于 startBackend，否则 PATH 注入时工具目录还不存在（方案 §7.3）。
 app.whenReady().then(async () => {
   try {
+    await initEnhancements()
     backend = await startBackend()
     console.log(`[AgentForge] backend ready: ${backend.baseUrl} (${backend.external ? 'external' : 'embedded'})`)
     registerIpc()

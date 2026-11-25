@@ -41,6 +41,7 @@ import javax.annotation.PreDestroy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -246,6 +247,9 @@ public class AgentRuntimeService {
                 .options(LocalRuntimeOptions.builder()
                         // 5分钟超时，避免长时间阻塞 Agent 执行。
                         .commandTimeoutMillis(5 * 60 * 1000)
+                        // 使用桌面端注入的 shell（自带能力工具 PATH）：
+                        // 否则后端由外部进程（IDEA 等）启动时，Agent 里会找不到 rg 等工具。
+                        .shell(resolveShell())
                         .build())
                 .workspace(workspace).build();
         String systemPrompt = DesktopAgentPrompt.render(null, skillLoader.loadSkillIndex(workspace.root()));
@@ -281,6 +285,25 @@ public class AgentRuntimeService {
             runtime.close();
             throw e;
         }
+    }
+
+    /**
+     * 解析 Agent 工具命令要用的 shell。
+     *
+     * 桌面端会注入一个"自带能力工具 PATH"的包装脚本（~/.agentforge-desktop/tools/bin/agentforge-sh），
+     * 它保证 rg 等工具在 Agent 的 shell 里一定可被解析到。
+     * 这里做存在性与可执行校验，异常时回退 /bin/sh，避免因为配置问题让整个执行链路不可用。
+     */
+    private String resolveShell() {
+        String shell = properties.getShell();
+        if (shell == null || shell.trim().isEmpty()) {
+            return "/bin/sh";
+        }
+        Path path = Paths.get(shell.trim());
+        if (!Files.isRegularFile(path) || !Files.isExecutable(path)) {
+            return "/bin/sh";
+        }
+        return path.toString();
     }
 
     private Workspace resolveWorkspace(String aid, String projectPath) {

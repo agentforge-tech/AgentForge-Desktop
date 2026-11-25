@@ -24,6 +24,10 @@
           <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="17" r="2"/></svg>
           <span>系统配置</span>
         </button>
+      <button type="button" :class="{ active: tab === 'enhance' }" @click="tab = 'enhance'">
+          <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.1 4.6 4.9.7-3.5 3.5.8 4.9-4.3-2.3-4.3 2.3.8-4.9L5 8.8l4.9-.7z"/></svg>
+          <span>能力增强</span>
+        </button>
       </nav>
 
       <div class="settings-content">
@@ -98,6 +102,80 @@
             <el-button type="primary" :loading="savingSystem" @click="saveSystem">保存系统配置</el-button>
           </div>
         </section>
+
+        <section v-show="tab === 'enhance'" class="settings-section">
+          <header class="settings-section-head"><b>能力增强</b><span>检测工作台依赖的本地工具，缺失时可一键安装</span></header>
+
+          <div class="enhance-env-row">
+            <div class="system-setting-copy">
+              <b>工作台系统环境</b>
+              <span>{{ envSummary }} · 工具目录 {{ toolsDirLabel }}</span>
+            </div>
+            <el-button size="small" :loading="detecting" :disabled="!canDetect" @click="detectEnhancements">重新检测</el-button>
+          </div>
+
+          <div v-if="!canDetect" class="enhance-empty">当前环境不支持能力检测（请在桌面应用中使用）</div>
+
+          <div v-else-if="detecting" class="enhance-empty">正在检测…</div>
+
+          <div v-else-if="!enhancements.length" class="enhance-empty">暂无能力项，点击「重新检测」开始</div>
+
+          <div v-else class="enhance-list">
+            <div v-for="item in enhancements" :key="item.id" class="enhance-item">
+              <div class="enhance-main">
+                <div class="enhance-title">
+                  <b>{{ item.name }}</b>
+                  <span v-if="item.version" class="enhance-version">{{ item.version }}</span>
+                  <span :class="['enhance-badge', 'is-' + item.status]">{{ statusLabel(item) }}</span>
+                </div>
+                <div class="enhance-desc">{{ item.message || item.capability }}</div>
+                <div v-if="item.path" class="enhance-path" :title="item.path">{{ shortPath(item.path) }}</div>
+              </div>
+              <div class="enhance-actions">
+                <el-button
+                  v-if="item.status === 'unknown'"
+                  size="small"
+                  :loading="detecting"
+                  @click="detectEnhancements"
+                >检测</el-button>
+                <el-button
+                  v-else-if="item.status === 'ready' && item.effective === false"
+                  size="small"
+                  type="warning"
+                  :loading="repairing"
+                  @click="repairPath"
+                >修复 PATH</el-button>
+                <el-button
+                  v-else-if="item.status === 'missing' || item.status === 'broken'"
+                  size="small"
+                  type="primary"
+                  :loading="installingId === item.id"
+                  :disabled="!item.canAutoInstall"
+                  @click="installEnhancement(item)"
+                >{{ item.canAutoInstall ? '一键安装' : '暂不支持' }}</el-button>
+                <el-button
+                  v-else-if="item.status === 'outdated' || (item.status === 'ready' && item.upgradeAvailable)"
+                  size="small"
+                  :type="item.status === 'outdated' ? 'primary' : 'default'"
+                  :loading="installingId === item.id"
+                  @click="installEnhancement(item, 'upgrade')"
+                >{{ item.status === 'outdated' ? '一键升级' : '升级至 ' + item.recommendedVersion }}</el-button>
+                <el-button v-else size="small" :loading="detecting" @click="detectEnhancements">检测</el-button>
+              </div>
+            </div>
+          </div>
+
+          <el-alert
+            v-if="restartHint"
+            class="enhance-restart"
+            type="success"
+            :title="restartHint"
+            :closable="false"
+            show-icon
+          >
+            <el-button size="mini" type="primary" :loading="restarting" @click="restartBackend">立即重启</el-button>
+          </el-alert>
+        </section>
       </div>
     </div>
 
@@ -141,6 +219,7 @@
 <script>
 import { fetchModels, upsertModel, testConnectivity } from '../api/model'
 import { getAgent, upsertAgent } from '../api/agent'
+import { invalidateServerInfo } from '../api/client'
 
 const emptyModel = () => ({
   id: null,
@@ -190,7 +269,15 @@ export default {
     systemForm: {
       interactionModeSupport: false,
       taskCompletionReminder: true
-    }
+    },
+    enhancements: [],
+    enhancementsLoaded: false,
+    detecting: false,
+    installingId: '',
+    restarting: false,
+    repairing: false,
+    restartHint: '',
+    envInfo: { platform: '', arch: '', runtime: '' }
   }),
   computed: {
     modelDialogTitle() {
@@ -200,6 +287,24 @@ export default {
     selectableModels() {
       if (!this.agentForm.modelIds.length) return this.models
       return this.models.filter((model) => this.agentForm.modelIds.includes(model.id))
+    },
+    canDetect() {
+      return Boolean(window.electronAPI && window.electronAPI.detectEnhancement)
+    },
+    envSummary() {
+      const platformName = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[this.envInfo.platform] || this.envInfo.platform
+      const parts = [platformName, this.envInfo.arch].filter(Boolean)
+      return parts.length ? parts.join(' · ') : '未知环境'
+    },
+    toolsDirLabel() {
+      const item = this.enhancements.find((entry) => entry.path)
+      if (!item) return '~/.agentforge-desktop/tools'
+      const normalized = String(item.path).replace(/\\/g, '/')
+      const marker = '/tools/'
+      const index = normalized.indexOf(marker)
+      if (index < 0) return '~/.agentforge-desktop/tools'
+      // 只展示到工具根目录（…/tools），避免把二进制文件名当目录展示。
+      return `…${normalized.slice(index, index + marker.length - 1)}`
     }
   },
   watch: {
@@ -256,6 +361,8 @@ export default {
       } finally {
         this.loading = false
       }
+      // 能力列表独立加载：其失败不应影响模型 / Agent 配置的可用性。
+      await this.loadEnhancements()
     },
     async saveSystem() {
       if (!window.electronAPI || !window.electronAPI.saveSystemSettings) {
@@ -275,6 +382,132 @@ export default {
         this.$message.error(error.message || '系统配置保存失败')
       } finally {
         this.savingSystem = false
+      }
+    },
+    // 能力增强：先渲染持久化快照避免闪烁，再异步检测校正（方案 §8.3）。
+    statusLabel(item) {
+      // 已安装但 Agent 的 shell 里找不到 → 不能显示"已支持"，否则用户会遇到"显示正常却执行失败"。
+      if (item.status === 'ready' && item.effective === false) return '待修复'
+      const map = {
+        unknown: '未检测',
+        ready: '已支持',
+        missing: '未安装',
+        outdated: '版本过低',
+        broken: '不可用'
+      }
+      return map[item.status] || '未检测'
+    },
+    shortPath(value) {
+      const normalized = String(value || '').replace(/\\/g, '/')
+      const index = normalized.indexOf('/tools/')
+      return index > 0 ? `…${normalized.slice(index)}` : normalized
+    },
+    async loadEnhancements() {
+      if (!this.canDetect) {
+        this.enhancementsLoaded = true
+        return
+      }
+      try {
+        const info = await window.electronAPI.getLocalServerInfo()
+        if (info) {
+          this.envInfo = {
+            platform: info.platform || '',
+            arch: info.arch || '',
+            runtime: info.runtime || ''
+          }
+        }
+      } catch (_error) {
+        // 环境信息只是展示用，失败不影响检测。
+      }
+      try {
+        this.enhancements = (await window.electronAPI.listEnhancements()) || []
+      } catch (error) {
+        this.$message.error(error.message || '能力检测失败')
+      } finally {
+        this.enhancementsLoaded = true
+      }
+    },
+    async detectEnhancements() {
+      if (!this.canDetect) return
+      this.detecting = true
+      try {
+        const status = await window.electronAPI.detectEnhancement('rg')
+        if (status) {
+          const index = this.enhancements.findIndex((item) => item.id === status.id)
+          if (index >= 0) this.$set(this.enhancements, index, status)
+          else this.enhancements = [...this.enhancements, status]
+        }
+      } catch (error) {
+        this.$message.error(error.message || '检测失败')
+      } finally {
+        this.detecting = false
+      }
+    },
+    async installEnhancement(item, mode = 'auto') {
+      if (!window.electronAPI || !window.electronAPI.installEnhancement) {
+        this.$message.warning('当前环境不支持安装能力组件')
+        return
+      }
+      this.installingId = item.id
+      this.restartHint = ''
+      try {
+        const result = await window.electronAPI.installEnhancement(item.id, mode)
+        if (result?.status) {
+          const index = this.enhancements.findIndex((entry) => entry.id === result.status.id)
+          if (index >= 0) this.$set(this.enhancements, index, result.status)
+        }
+        this.$message.success(result?.message || '安装完成')
+        if (result?.needsRestart) {
+          this.restartHint = `${result.message || '已安装'}，重启本地服务后生效`
+        }
+      } catch (error) {
+        this.$message.error(error.message || '安装失败')
+      } finally {
+        this.installingId = ''
+      }
+    },
+    // 修复 PATH：二进制已在但 Agent 的 shell 解析不到时，重写包装脚本让外部启动的后端也能用。
+    async repairPath() {
+      if (!window.electronAPI || !window.electronAPI.repairEnhancementPath) {
+        this.$message.warning('当前环境不支持修复 PATH')
+        return
+      }
+      this.repairing = true
+      try {
+        const result = await window.electronAPI.repairEnhancementPath('rg')
+        if (result?.status) {
+          const index = this.enhancements.findIndex((entry) => entry.id === result.status.id)
+          if (index >= 0) this.$set(this.enhancements, index, result.status)
+        }
+        if (result?.shellOk) {
+          this.$message.success('PATH 已修复，Agent 可直接使用 rg')
+        } else {
+          this.restartHint = 'PATH 已写入，需重启本地服务后生效'
+          this.$message.warning('PATH 已写入，请重启本地服务后生效')
+        }
+      } catch (error) {
+        this.$message.error(error.message || '修复失败')
+      } finally {
+        this.repairing = false
+      }
+    },
+    async restartBackend() {
+      if (!window.electronAPI || !window.electronAPI.restartBackend) {
+        this.$message.warning('当前环境不支持重启本地服务')
+        return
+      }
+      this.restarting = true
+      try {
+        await window.electronAPI.restartBackend()
+        // 后端重启会更换端口与 token，必须让渲染进程重新获取连接信息。
+        invalidateServerInfo()
+        this.restartHint = ''
+        this.$message.success('本地服务已重启')
+        await this.detectEnhancements()
+      } catch (error) {
+        this.$message.error(error.message || '重启失败')
+      } finally {
+        this.restarting = false
       }
     },
     async saveAgent() {
@@ -555,6 +788,125 @@ export default {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid #edf0f4;
+}
+
+.enhance-env-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid #e5e9ef;
+  border-radius: 8px;
+  background: #f7f9fc;
+}
+
+.enhance-empty {
+  padding: 22px 14px;
+  color: #98a2b3;
+  font-size: 12px;
+  text-align: center;
+}
+
+.enhance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.enhance-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid #e5e9ef;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.enhance-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.enhance-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.enhance-title b {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.enhance-version {
+  color: #7c8698;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.enhance-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.enhance-badge.is-ready {
+  background: #e7f6ec;
+  color: #1f8a4c;
+}
+
+.enhance-badge.is-missing,
+.enhance-badge.is-broken {
+  background: #fdeaea;
+  color: #c0453b;
+}
+
+.enhance-badge.is-outdated {
+  background: #fff4e0;
+  color: #ad6d11;
+}
+
+.enhance-badge.is-ready.is-ineffective {
+  background: #fff4e0;
+  color: #ad6d11;
+}
+
+.enhance-badge.is-unknown {
+  background: #eef1f5;
+  color: #79849a;
+}
+
+.enhance-desc {
+  color: #8a94a3;
+  font-size: 12px;
+}
+
+.enhance-path {
+  overflow: hidden;
+  color: #9aa4b2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enhance-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.enhance-restart {
+  margin-top: 14px;
 }
 
 ::v-deep .agent-config-form .el-input-number {

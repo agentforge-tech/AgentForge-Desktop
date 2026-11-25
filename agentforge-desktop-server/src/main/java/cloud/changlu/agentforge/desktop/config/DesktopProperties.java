@@ -16,6 +16,8 @@ public class DesktopProperties {
     private long cancelWaitTimeoutMs = 15000L;
     private long cancelPollIntervalMs = 200L;
     private String chatEventStoreType = "sqlite";
+    // Agent 工具命令使用的 shell：桌面端会传入"自带 PATH 的包装脚本"，保证 rg 等工具一定能被解析到。
+    private String shell = "";
 
     public Path rootPath() {
         return Paths.get(rootDir).toAbsolutePath().normalize();
@@ -90,5 +92,13 @@ public class DesktopProperties {
 
     public void setChatEventStoreType(String chatEventStoreType) {
         this.chatEventStoreType = chatEventStoreType;
+    }
+
+    public String getShell() {
+        return shell;
+    }
+
+    public void setShell(String shell) {
+        this.shell = shell;
     }
 }

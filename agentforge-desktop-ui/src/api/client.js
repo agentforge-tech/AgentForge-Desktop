@@ -8,6 +8,11 @@ export async function resolveServerInfo() {
   return { baseUrl: '', token: '', runtime: 'browser' }
 }
 
+// 后端重启后端口与 token 都会变化，必须丢弃缓存重新获取，否则后续请求会 401 或连错端口。
+export function invalidateServerInfo() {
+  infoPromise = null
+}
+
 export async function authHeaders(extra = {}) {
   const { token } = await resolveServerInfo()
   const headers = { 'Content-Type': 'application/json', ...extra }
