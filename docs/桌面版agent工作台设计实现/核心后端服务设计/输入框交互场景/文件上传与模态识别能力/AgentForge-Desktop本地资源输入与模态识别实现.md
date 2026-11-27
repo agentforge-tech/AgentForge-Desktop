@@ -153,13 +153,38 @@ AttachmentContentAssembler -> UserMessage(TextContent + ImageContent)
 
 | 来源 | 处理方式 |
 | --- | --- |
-| 「+」→「上传文件」子菜单选择本地文件/文件夹 | Electron `dialog.showOpenDialog` |
-| 拖拽文件 | `webUtils.getPathForFile(file)` |
-| 粘贴文件 | `getPathForFile`，失败则读取剪贴板 |
+| 「+」→「上传文件」子菜单选择本地文件/文件夹 | Electron `dialog.showOpenDialog` → `describeResources` |
+| 拖拽文件 | `webUtils.getPathForFile(file)` → IPC `describe-resources` 补全元信息 |
+| 粘贴文件 | `getPathForFile` → 同上；拿不到路径时读取剪贴板 |
 | 粘贴剪贴板图片 | `clipboard.readImage().toPNG()` 写入临时目录 |
 | 历史回放 | 从 `req.rawMessage` 还原标记 |
 
 单条消息可不限数量地引用资源，前端与后端均不做数量限制（仅按绝对路径去重）。
+
+### 3.6 类型判定统一口径
+
+拖拽与粘贴只能拿到路径。如果渲染进程自行按扩展名推断，无扩展名的文件夹会被判成普通文件：
+输入框显示文件图标、标记写成 `:file:`；而后端按真实文件系统识别为 `folder`，
+重新进入会话时气泡又按 `folder` 渲染，于是出现**同一资源在输入框与历史消息里图标不一致**。
+
+因此三处必须使用同一口径，优先级为「目录 → 扩展名 → 客户端声明 → `file`」：
+
+| 层 | 实现 | 说明 |
+| --- | --- | --- |
+| Electron 主进程 | `describeResource` / IPC `describe-resources` | `fs.statSync` 判定目录，返回 `fileType/type/size` |
+| 渲染进程 | `utils/resourceType.js`、`utils/resourceMeta.js` | `inferResourceType` 兜底推断，`normalizeResource` 统一字段 |
+| 后端 | `DesktopResourceService#resolveType` | `Files.isDirectory` 优先，扩展名次之，最后才采信请求声明 |
+
+补充规则：
+
+- 目录只能由文件系统确证，Electron 判定为 `folder` 时前端直接采信；
+- 扩展名是强证据，可纠正过期类型（例如历史数据里 `.png` 被记成 `file`）；
+- 后端 `buildAgentQuestion` / `buildAppendContent` 输出的 `[本地资源(type)]` 以解析结果为准，
+  不使用标记里的历史类型，避免过期类型泄漏进模型提示；
+- `ComposerInput` 与 `UserMessageContent` 渲染 Chip 时同样以资源真实类型为准；
+- 会话上下文恢复出的资源若为「无扩展名 + `type=file`」，会异步回主进程核验真实类型，
+  并按结果改写 `draft` 中的标记，避免再次序列化又退化成 `file`。
+
 
 ---
 
@@ -507,7 +532,8 @@ cd agentforge-desktop-ui && npm run build
 
 新增测试：
 
-- `DesktopResourceServiceTest`：资源解析、标记替换、数量限制；
+- `DesktopResourceServiceTest`：资源解析、标记替换、数量限制，
+  以及「标记类型过期时以文件系统/扩展名确证结果为准」；
 - `DesktopAttachmentRoutingServiceTest`：多模态载荷路由。
 
 ### 11.2 手工验证
@@ -521,6 +547,7 @@ cd agentforge-desktop-ui && npm run build
 | 添加文本文件 | 模型收到正文（超长截断） |
 | 添加文件夹 | 首次附件即包含目录概览，Agent 可继续调用 `read_resource` 深入读取 |
 | 刷新/切换会话 | 资源 Chip 与输入时位置一致 |
+| 拖拽无扩展名文件夹 | 输入框即显示文件夹图标，发送后与重新进入会话的图标一致 |
 | 运行中追加含资源消息 | 追加内容进入上下文，Agent 可按路径读取 |
 
 ---
@@ -534,6 +561,8 @@ agentforge-desktop-ui/src/components/ComposerInput.vue
 agentforge-desktop-ui/src/components/ComposerResourceChip.vue
 agentforge-desktop-ui/src/components/UserMessageContent.vue
 agentforge-desktop-ui/src/pages/workbench/ChatWorkbench.vue
+agentforge-desktop-ui/src/utils/resourceType.js
+agentforge-desktop-ui/src/utils/resourceMeta.js
 agentforge-desktop-ui/src/utils/sessionReplay.js
 agentforge-desktop-ui/src/styles/chat.css
 agentforge-desktop-ui/electron/main.mjs

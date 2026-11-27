@@ -51,6 +51,7 @@ import ElegantToolItem from './ElegantToolItem.vue'
 import AppendedUserMessage from '../../components/AppendedUserMessage.vue'
 import InterruptTraceItem from '../../components/InterruptTraceItem.vue'
 import ResponseSegmentBlock from '../../components/ResponseSegmentBlock.vue'
+import { shouldStreamContent } from '../../utils/chatCatchUp'
 
 export default {
   name: 'ElegantMessage',
@@ -81,7 +82,9 @@ export default {
       return this.message.content || (this.activeResponseSegment && this.activeResponseSegment.content) || ''
     },
     contentStreaming() {
-      return !this.message.content && !!this.activeResponseSegment && this.message.status === 'running'
+      // 收敛到 shouldStreamContent：追赶期必须关掉逐字动画，
+      // 否则几万字积压会一个字一个字往外蹦，远追不上 SSE 推送速度。
+      return shouldStreamContent(this.message)
     },
     elapsed() {
       return formatElapsedDuration(this.message.elapsedMs)

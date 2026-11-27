@@ -132,6 +132,9 @@ public class ChatTaskServiceImpl implements ChatTaskService {
         String displayMessage = resourceService.displayText(body.getMessage());
         if (displayMessage.isEmpty() && !resources.isEmpty()) {
             displayMessage = "请处理我提供的本地资源。";
+        } else if (displayMessage.isEmpty() && resourceService.hasSkillMarker(body.getMessage())) {
+            // 只选了 Skill、没写正文也是合法用法：兜底文案保证标题与消息记录非空
+            displayMessage = "请按所选 Skill 执行。";
         }
         String question = resourceService.buildAgentQuestion(body.getMessage(), resources);
         String reqJson = attachmentService.buildUserReqJson(body, resources, displayMessage);

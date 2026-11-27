@@ -138,6 +138,8 @@ public class ChatController {
             String displayMessage = resourceService.displayText(body.getMessage());
             if (displayMessage.isEmpty() && !resources.isEmpty()) {
                 displayMessage = "请处理我提供的本地资源。";
+            } else if (displayMessage.isEmpty() && resourceService.hasSkillMarker(body.getMessage())) {
+                displayMessage = "请按所选 Skill 执行。";
             }
             question = resourceService.buildAgentQuestion(body.getMessage(), resources);
             String reqJson = attachmentService.buildUserReqJson(body, resources, displayMessage);

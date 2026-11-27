@@ -376,6 +376,12 @@ function createWindow() {
 // 5、注册主进程 IPC：向渲染进程提供后端信息、打开路径、资源选择与剪贴板读取能力。
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'])
 const DOCUMENT_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
+// 文本/代码类统一按 document 展示，与前端 inferResourceType、后端 resolveType 保持同一口径；
+// 三处口径不一致会让同一资源在输入框与历史消息里显示不同类型。
+const TEXT_EXTENSIONS = new Set([
+  'txt', 'md', 'markdown', 'json', 'yaml', 'yml', 'xml', 'csv', 'log',
+  'java', 'js', 'ts', 'tsx', 'jsx', 'vue', 'py', 'go', 'rs', 'sh', 'sql', 'css', 'scss'
+])
 
 function describeResource(filePath) {
   const resolved = path.resolve(String(filePath))
@@ -394,7 +400,7 @@ function describeResource(filePath) {
   else if (IMAGE_EXTENSIONS.has(fileType)) type = 'image'
   else if (fileType === 'pdf') type = 'pdf'
   else if (fileType === 'html' || fileType === 'htm') type = 'html'
-  else if (DOCUMENT_EXTENSIONS.has(fileType)) type = 'document'
+  else if (DOCUMENT_EXTENSIONS.has(fileType) || TEXT_EXTENSIONS.has(fileType)) type = 'document'
   return {
     path: resolved,
     name,
@@ -715,6 +721,20 @@ function registerIpc() {
       properties: ['openDirectory']
     })
     return result.canceled ? [] : describeResources(result.filePaths)
+  })
+  // 拖拽/粘贴只能拿到路径，目录与扩展名必须由主进程判定：
+  // 渲染进程仅凭扩展名推断会把无扩展名的文件夹误判成普通文件，
+  // 表现为输入框显示文件图标、发出的标记类型与后端识别出的 folder 不一致。
+  ipcMain.handle('local-agent:describe-resources', (_event, filePaths) => {
+    const seen = new Set()
+    const targets = []
+    ;(Array.isArray(filePaths) ? filePaths : []).forEach((raw) => {
+      const value = typeof raw === 'string' ? raw.trim() : ''
+      if (!value || seen.has(value)) return
+      seen.add(value)
+      targets.push(value)
+    })
+    return describeResources(targets)
   })
   ipcMain.handle('local-agent:read-clipboard-text', () => {
     const text = clipboard.readText()

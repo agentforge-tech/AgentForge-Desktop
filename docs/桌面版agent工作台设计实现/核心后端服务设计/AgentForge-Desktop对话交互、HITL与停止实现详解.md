@@ -407,6 +407,9 @@ agentforge:
 ### 6.7 前端行为
 
 - 点击停止后调用 `/api/chat/stop`，按钮进入“停止中…”，禁止重复提交；
+- “停止中”必须有可感知的等待反馈：按钮保持红色，内部白色方块换成环形旋转，并加 `aria-busy`；`prefers-reduced-motion` 下放慢旋转速度而不是取消；
+- 停止在多数情况下几十毫秒即收口，直接收尾会让旋转态一闪而过，因此用 `keepFeedbackVisible()`（`utils/feedbackTiming.js`）补足最短可见时长（默认 600ms）后再复位按钮；
+- 等待上限由 `cancel-wait-timeout-ms`（默认 15s）决定，超时返回 `TIMEOUT_CANCELLED` 后按钮立即复位，不会无限旋转；
 - 不立即 abort SSE，继续接收服务端 `resp_end`；
 - 返回 `CANCELLED`：显示“用户已停止”；
 - 返回 `TIMEOUT_CANCELLED`：显示“停止超时，任务已强制收口”，并终止本地订阅；

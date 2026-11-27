@@ -1,4 +1,8 @@
 import { reduceInterruptAnswers, reduceInterruptEvent } from './interruptEventReducer'
+import { toEpochMs } from './formatDuration'
+// 历史 req.files 可能来自旧版前端（字段名不同、文件夹被记成 file），
+// 回放时统一归一化，保证气泡与输入框、后端三处类型一致。
+import { normalizeResource } from './resourceMeta'
 import {
   appendResponseSegment,
   closeOpenResponseSegment,
@@ -31,15 +35,17 @@ function parseReq(raw) {
 function replayUserResources(record) {
   const req = parseReq(record.req)
   const files = (req && Array.isArray(req.files) && req.files) || []
+  // originFileName/fileSize 是后端快照的字段名，先映射再交给 normalizeResource 统一处理
   return files
     .filter((item) => item && item.path)
-    .map((item) => ({
+    .map((item) => normalizeResource({
       path: item.path,
       name: item.originFileName || item.name || '',
       fileType: item.fileType || '',
       size: item.fileSize || item.size || 0,
       type: item.type || ''
     }))
+    .filter(Boolean)
 }
 
 function replayUserRawText(record) {
@@ -126,8 +132,10 @@ export function replayMessage(record) {
     parts: [],
     content: '',
     error: '',
-    startedAt: record.startedAt || 0,
-    finishedAt: record.finishedAt || null,
+    // 后端这两个字段是 'yyyy-MM-dd HH:mm:ss' 字符串，必须转成毫秒，
+    // 否则 Date.now() - startedAt 会得到 NaN，耗时显示为空。
+    startedAt: toEpochMs(record.startedAt),
+    finishedAt: toEpochMs(record.finishedAt) || null,
     elapsedMs: record.elapsedMs || null
   }
   events.forEach((event) => {

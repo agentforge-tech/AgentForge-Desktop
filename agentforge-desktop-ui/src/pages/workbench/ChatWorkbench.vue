@@ -32,14 +32,14 @@
         </el-button>
       </div>
 
-      <div class="session-scroll" :class="{ 'has-pinned-panel': pinnedTaskSessions.length, 'workspace-groups-collapsed': expandedWorkspaceIds.length === 0, 'tasks-collapsed': !normalTasksOpen }">
+      <div ref="sessionScroll" class="session-scroll" :class="{ 'has-pinned-panel': pinnedTaskSessions.length, 'workspace-groups-collapsed': expandedWorkspaceIds.length === 0, 'tasks-collapsed': !normalTasksOpen }">
         <section v-if="pinnedTaskSessions.length" class="session-list-panel pinned-task-panel" :class="{ 'is-collapsed': !pinnedTasksOpen }">
           <button type="button" class="task-group-title pinned-task-title" @click="pinnedTasksOpen = !pinnedTasksOpen">
             <span>置顶任务 ({{ pinnedTaskSessions.length }})</span>
             <i :class="pinnedTasksOpen ? 'el-icon-arrow-down' : 'el-icon-arrow-right'"></i>
           </button>
           <div v-show="pinnedTasksOpen" class="session-panel-body">
-            <div v-for="item in pinnedTaskSessions" :key="'pinned-task-' + item.id" class="session-item" :class="{ active: item.id === activeSessionId }" @click="openSession(item)">
+            <div v-for="item in pinnedTaskSessions" :key="'pinned-task-' + item.id" class="session-item" :data-session-id="item.id" :class="{ active: item.id === activeSessionId }" @click="openSession(item)">
               <div class="session-body">
                 <span class="session-text" :title="item.title">{{ item.title }}</span>
                 <i v-if="isSessionRunning(item)" class="el-icon-loading session-running-icon" title="任务运行中" aria-label="任务运行中"></i>
@@ -66,7 +66,7 @@
           <div v-show="normalTasksOpen" class="session-panel-body">
             <template v-for="group in normalTaskGroups">
               <div :key="'normal-task-group-' + group.key" class="session-date-group-title">{{ group.label }}</div>
-              <div v-for="item in group.items" :key="'normal-task-' + item.id" class="session-item" :class="{ active: item.id === activeSessionId }" @click="openSession(item)">
+              <div v-for="item in group.items" :key="'normal-task-' + item.id" class="session-item" :data-session-id="item.id" :class="{ active: item.id === activeSessionId }" @click="openSession(item)">
               <div class="session-body">
                 <span class="session-text" :title="item.title">{{ item.title }}</span>
                 <i v-if="isSessionRunning(item)" class="el-icon-loading session-running-icon" title="任务运行中" aria-label="任务运行中"></i>
@@ -158,6 +158,7 @@
                 v-for="item in group.sessions"
                 :key="item.id"
                 class="session-item workspace-session-item"
+                :data-session-id="item.id"
                 :class="{ active: item.id === activeSessionId }"
                 @click="openSession(item)"
               >
@@ -203,6 +204,27 @@
           <span>{{ title }}</span>
         </div>
         <div class="chat-toolbar">
+          <button
+            type="button"
+            class="task-board-trigger"
+            :class="{ 'has-attention': boardWaiting.length > 0 }"
+            :disabled="!backendConnected"
+            :title="backendConnected ? '任务看板' : '本地服务未连接'"
+            aria-label="任务看板"
+            @click="openBoard"
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="2.4" y="3.2" width="4.4" height="13.6" rx="1.4" />
+              <rect x="7.8" y="3.2" width="4.4" height="8.8" rx="1.4" />
+              <rect x="13.2" y="3.2" width="4.4" height="11.2" rx="1.4" />
+            </svg>
+            <!-- 角标优先显示"等我"的数量，没有才显示"在跑"的数量 -->
+            <span
+              v-if="boardBadgeCount"
+              class="task-board-badge"
+              :class="{ 'is-urgent': boardWaiting.length > 0 }"
+            >{{ boardBadgeCount }}</span>
+          </button>
           <el-select
             v-if="modeSwitchEnabled"
             v-model="mode"
@@ -240,6 +262,7 @@
                     :raw-text="message.rawText"
                     :resources="message.resources"
                     @preview="previewComposerResource"
+                    @open-skill="openComposerSkill"
                   />
                 </div>
                 <div class="agent-debug-message-actions">
@@ -308,16 +331,31 @@
           />
           <div class="composer-surface" :class="{ 'is-history': hasComposerHistory }">
           <div class="composer" @dragover.prevent @drop.prevent="handleComposerDrop">
+            <SkillShortcutPanel
+              v-if="skillShortcutOpen"
+              ref="skillShortcutPanel"
+              :skills="availableSkills"
+              :inserted-names="insertedSkillNames"
+              :query="skillShortcutQuery"
+              :loading="skillsLoading"
+              @select="selectComposerSkill"
+              @close="dismissSkillShortcut"
+            />
             <ComposerInput
               ref="composerInput"
               :value="draft"
               :disabled="!canChat || !!activeInterrupt"
               :placeholder="composerPlaceholder"
               :resources="composerResources"
+              :skills="composerSkills"
+              :shortcut-handler="handleComposerShortcutKey"
               @input="onComposerInput"
+              @caret-change="detectSkillShortcut"
               @enter="onEnter"
               @remove-resource="removeComposerResource"
               @preview-resource="previewComposerResource"
+              @remove-skill="removeComposerSkill"
+              @open-skill="openComposerSkill"
               @paste-files="handleComposerPaste"
             />
             <div class="composer-toolbar">
@@ -396,12 +434,23 @@
             </div>
             <button
               class="send-btn"
-              :class="{ stop: running && !draft.trim() && !composerResources.length }"
-              :disabled="!canChat || !!activeInterrupt || (!running && !draft.trim() && !composerResources.length)"
+              :class="{
+                stop: stopping || (running && !draft.trim() && !composerResources.length),
+                'is-stopping': stopping
+              }"
+              :disabled="stopping || !canChat || !!activeInterrupt || (!running && !draft.trim() && !composerResources.length)"
               :title="primaryActionTitle"
+              :aria-busy="stopping ? 'true' : 'false'"
+              :aria-label="primaryActionTitle"
               @click="onPrimaryAction"
             >
-              <svg v-if="!running || draft.trim() || composerResources.length" class="send-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <span v-if="stopping" class="stop-spinner" aria-hidden="true">
+                <svg viewBox="0 0 20 20">
+                  <circle class="stop-spinner-track" cx="10" cy="10" r="7.5" />
+                  <circle class="stop-spinner-arc" cx="10" cy="10" r="7.5" />
+                </svg>
+              </span>
+              <svg v-else-if="!running || draft.trim() || composerResources.length" class="send-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 19V5M5 12l7-7 7 7" />
               </svg>
               <span v-else class="stop-square"></span>
@@ -434,6 +483,18 @@
       @saved="onSettingsSaved"
       @system-saved="onSystemSettingsSaved"
     />
+
+    <TaskBoardDialog
+      :visible="boardOpen"
+      :running="boardRunning"
+      :waiting="boardWaiting"
+      :done="boardDone"
+      :workspaces="workspaces"
+      :loading="boardLoading"
+      :agent-name="currentAgent ? currentAgent.name : appName"
+      @enter="enterFromBoard"
+      @update:visible="onBoardVisibleChange"
+    />
   </div>
 </template>
 
@@ -446,10 +507,14 @@ import SkillManager from '../../components/SkillManager.vue'
 import ComposerInput from '../../components/ComposerInput.vue'
 import ComposerAddMenu from '../../components/ComposerAddMenu.vue'
 import ComposerResourceChip from '../../components/ComposerResourceChip.vue'
+import ComposerSkillChip from '../../components/ComposerSkillChip.vue'
+import SkillShortcutPanel from '../../components/SkillShortcutPanel.vue'
 import UserMessageContent from '../../components/UserMessageContent.vue'
 import MessageNavigator from '../../components/MessageNavigator.vue'
+import TaskBoardDialog from '../../components/TaskBoardDialog.vue'
 import chatAutoScroll from '../../utils/chatAutoScroll'
 import chatAnchorNav from '../../utils/chatAnchorNav'
+import { groupSessions, formatRelativeActivity } from '../../utils/taskBoardGroup'
 import { fetchAgents, upsertAgent } from '../../api/agent'
 import { fetchModels } from '../../api/model'
 import {
@@ -481,6 +546,17 @@ import {
   resolveSessionTitle
 } from '../../api/session'
 import { replaySessionMessages } from '../../utils/sessionReplay'
+// 资源类型判定必须与后端 DesktopResourceService、Electron describeResource 一致，
+// 否则输入框、已发消息、重新进入会话三处图标会不一致。
+import { inferResourceType, buildSkillMarker, createSkillMarkerRegExp } from '../../utils/resourceType'
+import { fetchSkills } from '../../api/skill'
+import {
+  describeLocalResources,
+  normalizeResource as normalizeResourceMeta,
+  pathForFile
+} from '../../utils/resourceMeta'
+import chatCatchUp from '../../utils/chatCatchUp'
+import { keepFeedbackVisible } from '../../utils/feedbackTiming'
 import { RENDER_MODES, DEFAULT_RENDER_MODE } from '../../modes'
 import { request } from '../../api/client'
 import { deleteWorkspace, fetchWorkspaces, renameWorkspace } from '../../api/workspace'
@@ -501,9 +577,10 @@ function parseSessionDate(item) {
 
 export default {
   name: 'ChatWorkbench',
-  components: { AgentMessageContent, ConfigDrawer, InterruptCard, WorkspacePicker, SkillManager, ComposerInput, ComposerAddMenu, ComposerResourceChip, UserMessageContent, MessageNavigator },
+  components: { AgentMessageContent, ConfigDrawer, InterruptCard, WorkspacePicker, SkillManager, ComposerInput, ComposerAddMenu, ComposerResourceChip, ComposerSkillChip, SkillShortcutPanel, UserMessageContent, MessageNavigator, TaskBoardDialog },
   // chatAnchorNav 需在 chatAutoScroll 之后：它复用 scrollToBottom / followScroll 状态
-  mixins: [chatAutoScroll, chatAnchorNav],
+  // chatCatchUp 排最后：它读 followScroll / isUserScrolledUp，并在追平后负责落底收敛
+  mixins: [chatAutoScroll, chatAnchorNav, chatCatchUp],
   data: () => ({
     brandLogo: agentLogo,
     appName: APP_NAME,
@@ -544,12 +621,25 @@ export default {
     pinnedTasksOpen: true,
     normalTasksOpen: true,
     skillManagerOpen: false,
+    // 输入框 `/` 唤起的 Skill 面板
+    availableSkills: [],
+    skillsLoading: false,
+    skillShortcutOpen: false,
+    skillShortcutQuery: '',
+    // 用户按 Esc 主动关闭：在匹配片段消失前不再自动弹开
+    skillShortcutDismissed: false,
     newChatActive: true,
     pendingAppends: [],
     deferredAppends: [],
     sessionContextTimer: null,
     pendingSessionContext: null,
-    contextSyncPaused: false
+    contextSyncPaused: false,
+    // 任务看板：独立维护自己的列表与轮询，避免与左栏 loadSessions 互相干扰
+    boardOpen: false,
+    boardTopSessions: [],
+    boardNormalSessions: [],
+    boardLoading: false,
+    boardTimer: null
   }),
   computed: {
     renderModes() {
@@ -582,6 +672,31 @@ export default {
     },
     canChat() {
       return Boolean(this.selectedAid && this.currentAgent && this.availableModels.length)
+    },
+    /** 输入框当前引用的 Skill 列表，直接从正文标记解析，不额外维护一份状态。 */
+    composerSkills() {
+      const names = new Set()
+      const result = []
+      for (const match of String(this.draft || '').matchAll(createSkillMarkerRegExp())) {
+        const name = this.decodeMarkerPart(match[1])
+        if (!name || names.has(name)) continue
+        names.add(name)
+        const path = this.decodeMarkerPart(match[2])
+        const meta = this.availableSkills.find((item) => item && item.name === name) || {}
+        result.push({
+          name,
+          path: path || meta.path || '',
+          description: meta.description || '',
+          scope: meta.scope || ''
+        })
+      }
+      return result
+    },
+    insertedSkillNames() {
+      return this.composerSkills.map((item) => item.name)
+    },
+    canSelectSkill() {
+      return this.canChat && !this.activeInterrupt
     },
     pinnedTaskSessions() {
       return this.topSessions.filter((item) => item.workspaceId == null)
@@ -649,6 +764,9 @@ export default {
       return '发送'
     },
     activeInterrupt() {
+      // 追赶期一律不弹阻断式确认：回放会把历史上的 interrupt_requested 重推一遍，
+      // 此时 PENDING 并不代表"现在需要你处理"，弹出会让用户误判当前待办。
+      if (this.catchUpActive) return null
       for (let index = this.messages.length - 1; index >= 0; index -= 1) {
         const message = this.messages[index]
         if (!message || message.role !== 'assistant') continue
@@ -669,6 +787,41 @@ export default {
     // 左侧导航为单选：技能管理打开时「新建任务」不再保持选中态。
     newChatHighlighted() {
       return this.newChatActive && !this.skillManagerOpen
+    },
+    // ---- 任务看板 ----
+    // 分类依据是会话级 status（见 utils/taskBoardGroup），不能用 SessionVo.running：
+    // 后者只在 status==1 时为 true，等待审批(5)/取消中(4) 都会被判成非运行态。
+    boardSourceList() {
+      const seen = new Set()
+      const merged = []
+      const push = (list) => {
+        (list || []).forEach((item) => {
+          if (!item || seen.has(item.id)) return
+          seen.add(item.id)
+          merged.push(item)
+        })
+      }
+      push(this.boardTopSessions)
+      push(this.boardNormalSessions)
+      return merged
+    },
+    boardGroups() {
+      return groupSessions(this.boardSourceList)
+    },
+    boardRunning() {
+      return this.boardGroups.running
+    },
+    boardWaiting() {
+      return this.boardGroups.waiting
+    },
+    boardDone() {
+      return this.boardGroups.done
+    },
+    // 角标优先显示"等我"的数量：等待审批是唯一需要用户动手的一栏
+    boardBadgeCount() {
+      if (!this.backendConnected) return 0
+      if (this.boardWaiting.length) return this.boardWaiting.length
+      return this.boardRunning.length
     }
   },
   watch: {
@@ -702,13 +855,18 @@ export default {
     }
   },
   created() {
+    // 已向主进程核验过真实类型的路径，避免重复 IPC（不需要响应式）
+    this.resourceTypeChecked = new Set()
     this.loadSystemSettings()
     this.bootstrap()
     this.checkBackend()
     this.scheduleSessionRefresh()
+    // 看板数据常驻低频轮询：顶栏角标在未打开看板时也要准确
+    this.scheduleBoardRefresh()
   },
   beforeDestroy() {
     if (this.sessionRefreshTimer) clearTimeout(this.sessionRefreshTimer)
+    if (this.boardTimer) clearTimeout(this.boardTimer)
     this.flushSessionContextUpdate()
     if (this.controller) this.controller.abort()
   },
@@ -762,6 +920,10 @@ export default {
       if (!found) return
       this.selectedAid = aid
       localStorage.setItem('agentforge.selectedAid', aid)
+      // 看板只覆盖当前 Agent，切换时必须清空并关闭，否则会短暂串台到上一个 Agent 的任务
+      this.boardTopSessions = []
+      this.boardNormalSessions = []
+      this.closeBoard()
       this.newChat()
       await this.applyAgent(found)
     },
@@ -770,6 +932,9 @@ export default {
       this.models = (await fetchModels()) || []
       this.refreshModelSelection()
       await Promise.all([this.loadSessions(), this.loadWorkspaces()])
+      // 切换 Agent 后立刻刷新看板数据，避免角标等到下一次轮询才准
+      await this.refreshBoard({ silent: true })
+      await this.loadAvailableSkills()
     },
     refreshModelSelection() {
       const ids = this.availableModels.map((item) => item.id)
@@ -791,6 +956,12 @@ export default {
         this.scheduleSessionRefresh()
       }, 5000)
     },
+    /**
+     * 加载左栏会话列表。
+     *
+     * 不传 limit：后端返回该 Agent 下全部非置顶会话，任务分组与工作空间分组才能完整展示，
+     * 不会再出现"昨天的会话 / 工作空间里的会话被条数窗口截掉"的问题。
+     */
     async loadSessions({ silent = false } = {}) {
       if (!this.selectedAid || this.sessionsLoading) return
       const aid = this.selectedAid
@@ -798,7 +969,7 @@ export default {
       try {
         const [top, normal] = await Promise.all([
           fetchTopSessionList(aid),
-          fetchSessionList(aid, 30)
+          fetchSessionList(aid)
         ])
         if (aid !== this.selectedAid) return
         this.topSessions = top || []
@@ -834,6 +1005,9 @@ export default {
       this.skillManagerOpen = false
       this.newChatActive = false
       this.activeSessionId = item.id
+      // 左栏与当前会话保持一致：展开所属工作空间/分组并滚动到该条目。
+      // 否则从看板等入口跳进来时，右侧已打开会话、左侧却折叠着看不到它。
+      this.revealSessionInSidebar(item)
       this.sessionId = item.sessionId
       this.sessionTitle = item.title
       this.selectedAidSessionModel = item.modelId
@@ -842,6 +1016,7 @@ export default {
       this.draft = ''
       this.composerResources = []
       this.messages = []
+      this.teardownCatchUp()
       this.resetAnchorNav()
       try {
         const [records, detail] = await Promise.all([
@@ -861,6 +1036,9 @@ export default {
         ))
         if (live && lastAssistant && lastAssistant.messageId) {
           this.running = true
+          // events 列为空 → lastEventSeq 为 0 → 整段内容都要靠 SSE 回放，
+          // 这是确定性的"追赶"场景，前置判定可避免首帧按 running 渲染后闪一下。
+          if (!(lastAssistant.lastEventSeq > 0)) this.beginCatchUp(lastAssistant)
           const controller = new AbortController()
           this.controller = controller
           this.consumeTask(lastAssistant)
@@ -882,9 +1060,15 @@ export default {
             })
         }
         this.resetScrollFollow()
-        this.scroll()
+        // 顺序关键：先测量 → 轨道就位 → 再落底。
+        // 原实现先 scroll 后 measure，会让位 padding 触发的重排把视口留在中途。
         this.measureNavigatorSize()
         this.commitAnchors({ rebuild: true })
+        await this.$nextTick()
+        if (version !== this.sessionLoadVersion) return
+        // force：刚打开会话必然要落到最新，不能被残留的 isUserScrolledUp 挡住；
+        // 只有用户真实滚动（wheel / touch）才中断收敛。
+        this.settleBottom({ force: true })
       } catch (error) {
         if (version === this.sessionLoadVersion) this.$message.error(error.message || '会话加载失败')
       } finally {
@@ -916,9 +1100,11 @@ export default {
       this.messages = []
       this.draft = ''
       this.composerResources = []
+      this.closeSkillShortcut()
       this.pendingAppends = []
       this.deferredAppends = []
       this.running = false
+      this.teardownCatchUp()
       this.resetAnchorNav()
       this.refreshModelSelection()
       this.$nextTick(() => {
@@ -928,24 +1114,123 @@ export default {
     openSkillManager() {
       // 任务执行中也可查看技能：只切换右侧视图，不打断进行中的会话流。
       this.skillManagerOpen = !this.skillManagerOpen
+      if (this.skillManagerOpen) this.closeSkillShortcut()
+      else this.onSkillManagerClosed()
     },
     isSessionRunning(item) {
       if (!item) return false
       return Boolean(item.running) || (this.running && item.id === this.activeSessionId)
     },
+    // ---- 任务看板 ----
+    async openBoard() {
+      if (!this.backendConnected) {
+        this.$message.error('本地服务未连接，无法加载任务看板')
+        return
+      }
+      this.boardOpen = true
+      // 打开瞬间强制拉一次，避免"刚提交却看不到"的空窗
+      await this.refreshBoard({ silent: true })
+      this.scheduleBoardRefresh()
+    },
+    closeBoard() {
+      this.boardOpen = false
+      // 不停轮询：顶栏角标要在未打开看板时也保持准确，只降频（见 scheduleBoardRefresh）
+      this.scheduleBoardRefresh()
+    },
+    onBoardVisibleChange(visible) {
+      if (visible) {
+        this.openBoard()
+        return
+      }
+      this.closeBoard()
+    },
+    /**
+     * 看板数据常驻低频轮询：角标的意义是"在我没打开看板时提示我"，
+     * 因此不能只在弹窗打开时才更新数据。打开时 5s（跟左栏节奏一致），
+     * 关闭时降到 15s，兼顾实时性与空转成本。
+     */
+    scheduleBoardRefresh() {
+      if (this.boardTimer) clearTimeout(this.boardTimer)
+      if (this._isBeingDestroyed || this._isDestroyed) return
+      const interval = this.boardOpen ? 5000 : 15000
+      this.boardTimer = setTimeout(async () => {
+        if (this.selectedAid && this.backendConnected && !this.boardLoading) {
+          await this.refreshBoard({ silent: true })
+        }
+        if (this._isBeingDestroyed || this._isDestroyed) return
+        this.scheduleBoardRefresh()
+      }, interval)
+    },
+    /**
+     * 拉取看板数据。
+     *
+     * 不复用 loadSessions：后者有 sessionsLoading 门禁会吞掉左栏刷新，
+     * 且会覆盖 topSessions/normalSessions，污染左栏口径。
+     * 看板只需最近活跃的任务，这里显式取接口上限 50 条，
+     * 只写自己的 boardTopSessions/boardNormalSessions。
+     */
+    async refreshBoard({ silent = false } = {}) {
+      if (!this.selectedAid || this.boardLoading) return
+      const aid = this.selectedAid
+      this.boardLoading = true
+      try {
+        const [top, normal] = await Promise.all([
+          fetchTopSessionList(aid),
+          fetchSessionList(aid, 50)
+        ])
+        if (aid !== this.selectedAid) return
+        this.boardTopSessions = top || []
+        this.boardNormalSessions = normal || []
+      } catch (error) {
+        if (!silent) this.$message.error(error.message || '任务看板加载失败')
+      } finally {
+        this.boardLoading = false
+      }
+    },
+    enterFromBoard(item) {
+      this.closeBoard()
+      if (!item) return
+      // 已在当前会话且正在流：不重复 openSession，避免无意义的 abort + 重连闪断
+      if (item.id === this.activeSessionId && this.running) {
+        this.revealSessionInSidebar(item)
+        return
+      }
+      this.openSession(item)
+    },
+    /**
+     * 让左栏与当前会话保持一致：展开所属工作空间/分组，并滚动到该条目。
+     *
+     * 从看板进入时用户没有手动展开过左栏，若工作空间仍折叠，
+     * 会出现"右侧已打开某会话，左侧却完全看不到它"的割裂感。
+     */
+    revealSessionInSidebar(item) {
+      if (!item) return
+      // 工作空间会话：必须展开对应分组，否则条目根本不渲染
+      if (item.workspaceId != null) {
+        if (!this.workspaceOpen) this.workspaceOpen = true
+        if (!this.expandedWorkspaceIds.includes(item.workspaceId)) {
+          this.expandedWorkspaceIds.push(item.workspaceId)
+        }
+      } else {
+        // 置顶或普通任务：确保对应栏目是展开的
+        if (item.topOrder > 0) this.pinnedTasksOpen = true
+        else this.normalTasksOpen = true
+      }
+      this.scrollSessionIntoView(item)
+    },
+    /** 等 DOM 更新（分组展开）后再滚动，否则元素还不存在。 */
+    scrollSessionIntoView(item) {
+      this.$nextTick(() => {
+        const container = this.$refs.sessionScroll
+        if (!container) return
+        const selector = `.session-item[data-session-id="${item.id}"]`
+        const el = container.querySelector(selector)
+        if (!el || typeof el.scrollIntoView !== 'function') return
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      })
+    },
     formatSessionTime(item) {
-      const raw = item.lastMessageAt || item.modifyTime || item.createTime
-      if (!raw) return ''
-      const date = new Date(String(raw).replace(' ', 'T'))
-      if (Number.isNaN(date.getTime())) return ''
-      const elapsed = Math.max(0, Date.now() - date.getTime())
-      const minute = 60 * 1000
-      const hour = 60 * minute
-      const day = 24 * hour
-      if (elapsed < minute) return '刚刚'
-      if (elapsed < hour) return `${Math.floor(elapsed / minute)}分钟前`
-      if (elapsed < day) return `${Math.floor(elapsed / hour)}小时前`
-      return `${Math.floor(elapsed / day)}天前`
+      return formatRelativeActivity(item)
     },
     async renameSession(item) {
       try {
@@ -1016,6 +1301,120 @@ export default {
     onComposerInput(value) {
       this.draft = value
       this.syncComposerResources(value)
+      this.detectSkillShortcut()
+    },
+    // ---- 输入框 Skill 唤起 ----
+    /** 解码标记片段；异常编码时保留原文，避免整段输入不可用。 */
+    decodeMarkerPart(value) {
+      try {
+        return decodeURIComponent(String(value || ''))
+      } catch (_error) {
+        return String(value || '')
+      }
+    },
+    currentWorkspacePath() {
+      const workspace = this.workspaces.find((item) => item.id === this.selectedWorkspaceId)
+      return workspace ? workspace.folderPath || '' : ''
+    },
+    /**
+     * 拉取 Skill 列表。
+     *
+     * 阶段之间没有缓存层：列表规模是「根目录 + 一层子目录」，且只在打开面板、
+     * 切换工作空间、从技能管理页返回时拉取，代价可以忽略。
+     */
+    async loadAvailableSkills() {
+      if (!this.canChat) {
+        this.availableSkills = []
+        return
+      }
+      this.skillsLoading = true
+      try {
+        const list = await fetchSkills({ workspacePath: this.currentWorkspacePath() })
+        this.availableSkills = Array.isArray(list) ? list : []
+      } catch (_error) {
+        // 列表失败不应阻塞输入，面板显示为空即可
+        this.availableSkills = []
+      } finally {
+        this.skillsLoading = false
+      }
+    },
+    /** 根据光标前文本决定是否显示面板，以及当前筛选词。 */
+    detectSkillShortcut() {
+      if (!this.canSelectSkill) {
+        this.closeSkillShortcut()
+        return
+      }
+      const before = (this.$refs.composerInput && this.$refs.composerInput.getCaretTextBefore)
+        ? this.$refs.composerInput.getCaretTextBefore(40)
+        : ''
+      // 行首或空白后的 "/query" 才算触发，避免 https:// 之类的误判
+      const match = before.match(/(?:^|\s)\/([^\s/]*)$/)
+      if (!match || match[1].length > 20) {
+        this.skillShortcutDismissed = false
+        this.closeSkillShortcut()
+        return
+      }
+      // 用户 Esc 主动关闭后，只要触发片段还在就不重新弹开
+      if (this.skillShortcutDismissed) return
+      this.skillShortcutOpen = true
+      this.skillShortcutQuery = match[1]
+      // 首次打开时补拉列表，避免每次键入都请求
+      if (!this.availableSkills.length && !this.skillsLoading) this.loadAvailableSkills()
+    },
+    closeSkillShortcut() {
+      this.skillShortcutOpen = false
+      this.skillShortcutQuery = ''
+    },
+    dismissSkillShortcut() {
+      this.skillShortcutDismissed = true
+      this.closeSkillShortcut()
+    },
+    /** 面板打开时优先消费键盘；返回 true 表示不再触发发送。 */
+    handleComposerShortcutKey(event) {
+      if (!this.skillShortcutOpen) return false
+      const panel = this.$refs.skillShortcutPanel
+      return Boolean(panel && panel.handleKey && panel.handleKey(event))
+    },
+    selectComposerSkill(skill) {
+      if (!skill || !skill.name) return
+      if (this.insertedSkillNames.includes(skill.name)) {
+        this.$message.info('该 Skill 已选择')
+        this.closeSkillShortcut()
+        return
+      }
+      const removeLength = this.skillShortcutQuery.length + 1
+      this.closeSkillShortcut()
+      const input = this.$refs.composerInput
+      if (!input) return
+      // 先抹掉 "/query"，再把标记插到原光标处，最终顺序与用户书写一致
+      if (input.deleteBeforeCaret) input.deleteBeforeCaret(removeLength)
+      this.$nextTick(() => {
+        if (input.insertResourceMarkers) {
+          input.insertResourceMarkers(buildSkillMarker(skill.name, skill.path || ''))
+        }
+      })
+    },
+    removeComposerSkill(name) {
+      if (!name) return
+      const pattern = new RegExp(
+        `\\[\\[agentforge-skill:${this.escapeRegExp(encodeURIComponent(name))}:[^\\]]+\\]\\]`, 'g')
+      this.draft = this.draft.replace(pattern, '')
+      this.$nextTick(this.autoGrow)
+    },
+    openComposerSkill(skill) {
+      const path = skill && skill.path
+      if (!path) return
+      if (window.electronAPI && window.electronAPI.openPath) {
+        window.electronAPI.openPath(path).then((error) => {
+          if (error) this.$message.error(error)
+        })
+      } else {
+        this.$message.info(path)
+      }
+    },
+    onSkillManagerClosed() {
+      // 导入/删除 Skill 后列表可能变化，回到工作台时刷新
+      this.loadAvailableSkills()
     },
     parseComposerMarkers(text) {
       const pattern = /\[\[agentforge-resource:([^:\]]+):([^\]]+)\]\]/g
@@ -1048,7 +1447,13 @@ export default {
       const unchanged =
         next.length === this.composerResources.length &&
         next.every((item, index) => item === this.composerResources[index])
-      if (!unchanged) this.composerResources = next
+      if (!unchanged) {
+        this.composerResources = next
+        // 标记里可能是旧数据写下的 file 类型，补一次真实类型校正
+        if (next.some((item) => item.type === 'file' && !item.fileType)) {
+          this.reconcileComposerResourceTypes()
+        }
+      }
     },
     activeComposerResources(text) {
       const paths = new Set(this.parseComposerMarkers(text).map((marker) => marker.path))
@@ -1136,6 +1541,10 @@ export default {
       })
       this.composerResources = resources
       this.draft = message
+      // 历史上下文可能存着旧版写入的类型，异步用真实文件系统结果纠正
+      if (resources.some((item) => item.type === 'file' && !item.fileType)) {
+        this.reconcileComposerResourceTypes(this.sessionLoadVersion)
+      }
     },
     onEnter() {
       if (this.running && (this.draft.trim() || this.composerResources.length)) {
@@ -1161,31 +1570,75 @@ export default {
       return `[[agentforge-resource:${type}:${encodeURIComponent(resource.path)}]]`
     },
     resourceType(resource) {
-      if (resource.type) return resource.type
-      const name = String(resource.name || resource.path || '').toLowerCase()
-      if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name)) return 'image'
-      if (/\.pdf$/.test(name)) return 'pdf'
-      if (/\.(html?|mhtml)$/.test(name)) return 'html'
-      if (/\.(md|txt|docx?|xlsx?|pptx?)$/.test(name)) return 'document'
-      return 'file'
+      return inferResourceType(resource)
     },
     normalizeResource(resource) {
-      if (!resource || !resource.path) return null
-      const normalized = { ...resource }
-      normalized.type = this.resourceType(normalized)
-      normalized.name =
-        normalized.name ||
-        String(normalized.path).split(/[\\/]/).filter(Boolean).pop() ||
-        normalized.path
-      return normalized
+      return normalizeResourceMeta(resource)
     },
     stripResourceMarkers(text) {
       return String(text || '')
         .replace(/\[\[agentforge-resource:[^:\]]+:[^\]]+\]\]/g, '')
+        .replace(createSkillMarkerRegExp(), '')
         .replace(/\n{3,}/g, '\n\n')
         .trim()
     },
+    /**
+     * 把文本中标记的类型改写成资源的真实类型。
+     *
+     * 标记类型是历史数据的一部分：旧版本拖拽文件夹时只拿到路径，会写成 `:file:`，
+     * 而同一份资源在 files 里可能已经是 folder。发送前统一改写，保证
+     * 输入框、请求体、历史回放三处类型一致。
+     */
+    normalizeMarkerTypes(text, resources) {
+      const list = resources || this.composerResources
+      if (!list || !list.length) return text
+      let result = String(text || '')
+      list.forEach((item) => {
+        const type = item.type || this.resourceType(item)
+        const pattern = new RegExp(
+          `\\[\\[agentforge-resource:[^:\\]]+:${this.escapeRegExp(encodeURIComponent(item.path))}\\]\\]`,
+          'g'
+        )
+        result = result.replace(pattern, this.resourceMarker({ path: item.path, type }))
+      })
+      return result
+    },
+    /**
+     * 纠正恢复出来的资源类型。
+     *
+     * 会话上下文里的 files 可能由旧版前端写入（无扩展名的文件夹被记成 file），
+     * 这类资源无法靠扩展名判断，必须回主进程问一次真实类型，否则
+     * 重新进入会话后输入框仍显示文件图标，而消息气泡已是文件夹图标。
+     */
+    async reconcileComposerResourceTypes(version) {
+      if (!this.resourceTypeChecked) this.resourceTypeChecked = new Set()
+      const uncertain = (this.composerResources || []).filter(
+        (item) => item.type === 'file' && !item.fileType && !this.resourceTypeChecked.has(item.path)
+      )
+      if (!uncertain.length) return
+      // 先登记再请求：避免连续输入时对同一路径反复发起 IPC
+      uncertain.forEach((item) => this.resourceTypeChecked.add(item.path))
+      const described = await describeLocalResources(uncertain.map((item) => item.path))
+      if (version != null && version !== this.sessionLoadVersion) return
+      const byPath = new Map(described.map((item) => [item.path, item]))
+      let changed = false
+      const next = this.composerResources.map((item) => {
+        const real = byPath.get(item.path)
+        if (!real || real.type === item.type) return item
+        changed = true
+        return { ...item, ...real }
+      })
+      if (!changed) return
+      this.composerResources = next
+      // 标记里也写回真实类型，避免下次序列化又退化成 file
+      this.draft = this.normalizeMarkerTypes(this.draft, next)
+    },
     addComposerResources(resources, richSelection) {
+      // 关键顺序：push 会立刻触发 Chip 重绘（innerHTML 重建），
+      // 必须在它之前确保光标已记录，否则插入点会退化成编辑器开头。
+      if (richSelection && this.$refs.composerInput && this.$refs.composerInput.ensureSelectionSaved) {
+        this.$refs.composerInput.ensureSelectionSaved()
+      }
       const added = []
       ;(resources || []).forEach((raw) => {
         const resource = this.normalizeResource(raw)
@@ -1256,19 +1709,26 @@ export default {
       this.rememberComposerSelection()
       const clipboard = event.clipboardData
       const files = Array.from((clipboard && clipboard.files) || [])
+      // 粘贴文本时可继续交给编辑器处理；只有携带文件/图片时才接管
       if (!files.length) return
-      const resources = files.map((file) => {
+      // 与拖拽同源：items 与 files 顺序一致，可用 entry 判断目录
+      const entries = Array.from((clipboard && clipboard.items) || []).map((item) => {
         try {
-          const filePath = window.electronAPI && window.electronAPI.getPathForFile
-            ? window.electronAPI.getPathForFile(file)
-            : ''
-          return filePath ? { path: filePath, name: file.name, size: file.size } : null
+          return item && typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null
         } catch (_error) {
           return null
         }
-      }).filter(Boolean)
-      if (resources.length) {
-        this.addComposerResources(resources, true)
+      })
+      const directoryHints = new Map()
+      files.forEach((file, index) => {
+        const filePath = pathForFile(file)
+        const entry = entries[index]
+        if (filePath && entry && entry.isDirectory) directoryHints.set(filePath, true)
+      })
+      const paths = files.map(pathForFile).filter(Boolean)
+      if (paths.length) {
+        // 类型以主进程真实结果为准，避免文件夹被当成普通文件
+        this.addComposerResources(await describeLocalResources(paths, directoryHints), true)
         return
       }
       try {
@@ -1280,21 +1740,30 @@ export default {
         this.$message.error(error.message || '读取剪贴板资源失败')
       }
     },
-    handleComposerDrop(event) {
+    async handleComposerDrop(event) {
       this.rememberComposerSelection()
-      const files = Array.from((event.dataTransfer && event.dataTransfer.files) || [])
+      const transfer = event.dataTransfer
+      const files = Array.from((transfer && transfer.files) || [])
       if (!files.length) return
-      const resources = files.map((file) => {
+      // 目录判定线索：items 与 files 顺序一致，webkitGetAsEntry().isDirectory 是
+      // 无需 IPC 即可拿到的最可靠信号，用于在旧 preload 下也能画出文件夹图标
+      const entries = Array.from((transfer && transfer.items) || []).map((item) => {
         try {
-          const filePath = window.electronAPI && window.electronAPI.getPathForFile
-            ? window.electronAPI.getPathForFile(file)
-            : ''
-          return filePath ? { path: filePath, name: file.name, size: file.size } : null
+          return item && typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null
         } catch (_error) {
           return null
         }
-      }).filter(Boolean)
-      if (resources.length) this.addComposerResources(resources, true)
+      })
+      const directoryHints = new Map()
+      files.forEach((file, index) => {
+        const filePath = pathForFile(file)
+        const entry = entries[index]
+        if (filePath && entry && entry.isDirectory) directoryHints.set(filePath, true)
+      })
+      const paths = files.map(pathForFile).filter(Boolean)
+      if (!paths.length) return
+      // 目录与扩展名以主进程真实结果为准，主进程不可用时退回上面的目录提示
+      this.addComposerResources(await describeLocalResources(paths, directoryHints), true)
     },
     createAnswer() {
       return {
@@ -1327,6 +1796,8 @@ export default {
                 answer.seenEventSeq.add(eventSeq)
                 answer.lastEventSeq = Math.max(answer.lastEventSeq || 0, eventSeq)
               }
+              // 追赶判定必须在 handleEvent 之前：先定模式，再按该模式渲染
+              this.noteCatchUpEvent(answer)
               this.handleEvent(answer, event, questionText)
             }
           })
@@ -1341,7 +1812,7 @@ export default {
       }
     },
     async send() {
-      const text = this.draft.trim()
+      const text = this.normalizeMarkerTypes(this.draft.trim())
       const resources = this.activeComposerResources(text)
       if (!this.canChat) {
         this.$message.warning('请先创建 Agent 并配置模型')
@@ -1414,12 +1885,28 @@ export default {
           this.running = waiting
           this.controller = null
           if (!waiting) this.restoreDeferredAppends()
+          // 兜底收尾：流自然结束时后端可能不发 resp_end（或早于落库），
+          // 此时不走 finishParts，elapsedMs 为空 → 状态栏"已完成"右侧没有耗时。
+          if (!waiting) this.settleAnswer(answer)
           this.scroll()
           if (!waiting) this.loadSessions()
           // 兜底：网络中断等场景可能收不到 error 事件，但仍应给出任务结束信号
           if (!waiting) this.notifyTaskDone(answer)
         }
       }
+    },
+    /**
+     * 兜底收尾：把仍在"运行中"的 answer 归到终态并补齐耗时。
+     *
+     * 正常路径由 resp_end 事件触发 finishParts；但流自然结束时后端
+     * 不保证下发该事件，缺了这一步 elapsedMs 就一直是 null，
+     * 界面表现为"已完成"却没有耗时，切换会话重新回放后才补上。
+     */
+    settleAnswer(answer) {
+      if (!answer || answer.status !== 'running') return
+      promoteLastResponseSegment(answer)
+      answer.status = 'success'
+      this.finishParts(answer)
     },
     handleEvent(answer, event, questionText) {
       switch (event.event) {
@@ -1473,7 +1960,9 @@ export default {
         default:
           break
       }
-      this.scroll()
+      // 追赶期不滚：积压事件成百上千条，逐条滚动会把视口反复拉扯；
+      // 追平后由 chatCatchUp 统一做一次落底收敛。
+      if (!this.isCatchUp(answer)) this.scroll()
       // 节流同步锚点：流式每个事件都会走到这里，200ms 合并一次
       this.scheduleAnchorSync()
     },
@@ -1602,6 +2091,8 @@ export default {
           this.running = waiting
           this.controller = null
           if (!waiting) this.restoreDeferredAppends()
+          // 同 send()：自然结束可能没有 resp_end，需要兜底收尾补耗时。
+          if (!waiting) this.settleAnswer(answer)
           this.scroll()
           if (!waiting) this.loadSessions()
           if (!waiting) this.notifyTaskDone(answer)
@@ -1610,7 +2101,7 @@ export default {
     },
     async sendAppend() {
       if (this.stopping) return
-      const text = this.draft.trim()
+      const text = this.normalizeMarkerTypes(this.draft.trim())
       const resources = this.activeComposerResources(text)
       if ((!text && !resources.length) || !this.sessionId) {
         if (!this.sessionId) this.$message.warning('请先发送一轮对话后再追加指令')
@@ -1683,6 +2174,7 @@ export default {
         return
       }
       this.stopping = true
+      const startedAt = Date.now()
       try {
         const result = await stopChat({ messageId: answer.messageId })
         const statusName = result && result.statusName
@@ -1735,6 +2227,8 @@ export default {
       } catch (error) {
         this.$message.error(error.message || '停止失败')
       } finally {
+        // 后端停止常常几十毫秒就返回；补足最短可见时长，保证用户能看到"停止中"旋转态。
+        await keepFeedbackVisible(startedAt)
         this.stopping = false
         this.commitAnchors()
       }
@@ -1794,10 +2288,17 @@ export default {
     selectWorkspace(item) {
       if (this.sessionId || !item) return
       this.selectedWorkspaceId = item.id
+      this.onComposerWorkspaceChanged()
     },
     clearWorkspace() {
       if (this.sessionId) return
       this.selectedWorkspaceId = null
+      this.onComposerWorkspaceChanged()
+    },
+    /** 工作空间变化后，Skill 列表与面板都要跟着换。 */
+    onComposerWorkspaceChanged() {
+      this.closeSkillShortcut()
+      this.loadAvailableSkills()
     },
     onWorkspaceCreated(item) {
       if (!item) return

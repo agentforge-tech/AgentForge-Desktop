@@ -37,6 +37,16 @@ public class DesktopResourceService {
     private static final Pattern RESOURCE_PATTERN =
             Pattern.compile("\\[\\[agentforge-resource:([^:\\]]+):([^\\]]+)\\]\\]");
 
+    /**
+     * 输入框内联 Skill 标记：{@code [[agentforge-skill:encodedName:encodedPath]]}。
+     *
+     * <p>与资源标记同构，位置由用户决定。这里只做文本替换，不查询 Skill 列表、不拼
+     * description，也不校验 Skill 是否仍然存在——失效 Skill 会在模型调用
+     * {@code skill(path)} 时暴露，且 path 越界由该工具自身的根目录校验兜住。
+     */
+    private static final Pattern SKILL_PATTERN =
+            Pattern.compile("\\[\\[agentforge-skill:([^:\\]]+):([^\\]]+)\\]\\]");
+
     private static final Set<String> IMAGE_EXTENSIONS = new LinkedHashSet<String>();
     private static final Set<String> TEXT_EXTENSIONS = new LinkedHashSet<String>();
     private static final Set<String> DOCUMENT_EXTENSIONS = new LinkedHashSet<String>();
@@ -115,24 +125,36 @@ public class DesktopResourceService {
         return new ArrayList<ResolvedResource>(unique.values());
     }
 
-    /** 去掉内联资源标记后的可见文本。 */
+    /** 去掉内联资源与 Skill 标记后的可见文本。 */
     public String displayText(String rawMessage) {
         if (rawMessage == null) {
             return "";
         }
-        return RESOURCE_PATTERN.matcher(rawMessage).replaceAll("").trim();
+        return SKILL_PATTERN.matcher(RESOURCE_PATTERN.matcher(rawMessage).replaceAll(""))
+                .replaceAll("")
+                .trim();
     }
 
     /** 把内联资源标记替换为按原位置排序的本地路径引用。 */
     public String buildAgentQuestion(String rawMessage, List<ResolvedResource> resources) {
-        String text = rawMessage == null ? "" : rawMessage;
+        String text = replaceSkillMarkers(rawMessage == null ? "" : rawMessage);
         final Set<String> seen = new LinkedHashSet<String>();
+        final Map<String, String> resolvedTypes = new LinkedHashMap<String, String>();
+        if (resources != null) {
+            for (ResolvedResource resource : resources) {
+                resolvedTypes.put(normalizeIdentity(resource.getUrl()), resource.getType());
+            }
+        }
         Matcher matcher = RESOURCE_PATTERN.matcher(text);
         StringBuffer buffer = new StringBuffer();
         while (matcher.find()) {
-            String type = matcher.group(1);
             String path = decode(matcher.group(2));
-            seen.add(normalizeIdentity(path));
+            String identity = normalizeIdentity(path);
+            seen.add(identity);
+            // 类型以解析结果为准：标记里可能是旧版前端写入的过期类型
+            String type = resolvedTypes.containsKey(identity)
+                    ? resolvedTypes.get(identity)
+                    : matcher.group(1);
             String replacement = "\n[本地资源(" + type + ")： " + path + "]\n";
             matcher.appendReplacement(buffer, Matcher.quoteReplacement(replacement));
         }
@@ -172,7 +194,7 @@ public class DesktopResourceService {
 
     /** 运行期追加消息：替换标记，并补充未出现在正文中的资源路径。 */
     public String buildAppendContent(String rawMessage, List<ResourceRef> references) {
-        String text = rawMessage == null ? "" : rawMessage;
+        String text = replaceSkillMarkers(rawMessage == null ? "" : rawMessage);
         final Set<String> seen = new LinkedHashSet<String>();
         Matcher matcher = RESOURCE_PATTERN.matcher(text);
         StringBuffer buffer = new StringBuffer();
@@ -194,14 +216,21 @@ public class DesktopResourceService {
                 if (seen.contains(identity)) {
                     continue;
                 }
-                String type = StringUtils.hasText(reference.getType())
-                        ? reference.getType().trim()
-                        : "file";
+                // 与主链路同口径：目录或扩展名能确证时以确证结果为准，避免旧标记类型影响 prompt
+                String type = resolveReferenceType(reference);
                 result.append("\n[本地资源(").append(type).append(")： ")
                         .append(reference.getPath()).append("]");
             }
         }
         return result.toString().trim();
+    }
+
+    /** 追加消息里的资源类型：优先文件系统与扩展名，其次客户端声明。 */
+    private String resolveReferenceType(ResourceRef reference) {
+        Path path = toPath(reference.getPath());
+        String fileType = resolveFileType(reference.getFileType(), path);
+        boolean directory = path != null && Files.isDirectory(path);
+        return resolveType(reference.getType(), fileType, directory);
     }
 
     public boolean isImage(String fileType) {
@@ -241,6 +270,9 @@ public class DesktopResourceService {
         if (StringUtils.hasText(provided)) {
             return provided.trim().toLowerCase(Locale.ROOT);
         }
+        if (path == null) {
+            return "";
+        }
         String name = path.getFileName() == null ? "" : path.getFileName().toString();
         int dot = name.lastIndexOf('.');
         return dot < 0 || dot == name.length() - 1
@@ -248,13 +280,30 @@ public class DesktopResourceService {
                 : name.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * 判定资源类型。
+     *
+     * <p>顺序：目录 → 扩展名（强证据）→ 客户端声明 → file。
+     * 与 Electron {@code describeResource} 及前端 {@code inferResourceType} 保持同一口径：
+     * 历史标记里可能留有旧版写入的过期类型（例如把文件夹写成 file），
+     * 只要能被文件系统或扩展名确证，就以确证结果为准，否则才采信客户端声明。
+     */
     private String resolveType(String provided, String fileType, boolean directory) {
         if (directory) {
             return "folder";
         }
+        String detected = typeOfFileType(fileType);
+        if (detected != null) {
+            return detected;
+        }
         if (StringUtils.hasText(provided)) {
             return provided.trim().toLowerCase(Locale.ROOT);
         }
+        return "file";
+    }
+
+    /** 仅按扩展名判定类型；无法判定时返回 {@code null}。 */
+    private String typeOfFileType(String fileType) {
         if (isImage(fileType)) {
             return "image";
         }
@@ -267,7 +316,12 @@ public class DesktopResourceService {
         if (isDocument(fileType)) {
             return "document";
         }
-        return "file";
+        // 文本/代码类在 UI 上按 document 展示，与 Electron describeResource、
+        // 前端 inferResourceType 保持同一口径，避免同一资源三处类型不一致。
+        if (isText(fileType)) {
+            return "document";
+        }
+        return null;
     }
 
     private static Path toPath(String raw) {
@@ -283,6 +337,28 @@ public class DesktopResourceService {
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    /** 判断原始消息里是否含内联 Skill 标记（用于可见文本兜底判定）。 */
+    public boolean hasSkillMarker(String rawMessage) {
+        return rawMessage != null && SKILL_PATTERN.matcher(rawMessage).find();
+    }
+
+    /**
+     * 把内联 Skill 标记替换成模型可读的指令文本，并保留用户在正文中的位置。
+     *
+     * <p>不校验 Skill 是否仍存在：列表只由前端筛选，后端注入的 path 也会被
+     * {@code DesktopSkillTool} 的根目录校验兜住，因此失效 Skill 自然在工具调用时暴露。
+     */
+    private String replaceSkillMarkers(String text) {
+        Matcher matcher = SKILL_PATTERN.matcher(text);
+        StringBuffer buffer = new StringBuffer();
+        while (matcher.find()) {
+            matcher.appendReplacement(buffer, Matcher.quoteReplacement(
+                    "[使用 Skill：" + decode(matcher.group(1)) + "（" + decode(matcher.group(2)) + "）]"));
+        }
+        matcher.appendTail(buffer);
+        return buffer.toString();
     }
 
     private static String decode(String value) {

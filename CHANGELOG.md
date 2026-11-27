@@ -46,6 +46,8 @@
 
 ### Fixed
 
+- [feat_1.0.x_23] 修复左栏会话被条数窗口截断导致历史会话不可见的问题：`sessionList` 接口 `limit` 缺省时返回该 Agent 全部非置顶会话（新增 `selectAllNormalList` 无 LIMIT 查询），左栏 `loadSessions` 改为不传 limit 拉全量，任务分组与工作空间分组完整展示历史会话，昨天及更早、工作空间下的会话不再被 30/50 条窗口挤掉；列表转为全量后把逐会话 `countBySessionId`/`selectLastMessageTime` 收敛为一条 `selectStatsGroupBySession` 分组统计，避免每 5 秒轮询退化为 N+1 查询；看板仍按显式 limit 50 取最近活跃任务
+- [feat_1.0.x_22] 修复本地资源类型在输入框与历史消息中不一致的问题：资源取回时统一经主进程 `describe-resources` 读取真实元信息（目录、扩展名、大小），无扩展名的文件夹不再被当成普通文件；新增 `utils/resourceType.js` 与 `utils/resourceMeta.js` 收敛类型判定与字段归一化，输入框 Chip、用户消息气泡、历史回放与后端 `resolveType` 统一为「目录 → 扩展名 → 客户端声明 → file」口径；发送与追加前按真实类型改写标记，后端 prompt 中的 `[本地资源(type)]` 以解析结果为准，并兼容旧数据里 `.png` 记为 file、文件夹记为 file 等过期类型
 - [feat_1.0.x_12] 修复输入框 Ctrl+A 全选删除资源后发送仍携带已删除资源的问题，输入与发送统一按草稿中实际存在的资源标记同步
 - [feat_1.0.x_10] 修复文件夹资源选择后缺少可用上下文的问题：选择文件夹时附带目录概览，Agent 可继续通过 read_resource 深入读取；修复非工作空间会话仍展示工作空间入口的问题；资源插入改为严格跟随输入框光标，失效时退化为末尾插入
 - [e27d593] 修复打包后图标与模型 logo 不显示问题

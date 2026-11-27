@@ -55,6 +55,7 @@ import ToolCard from './ToolCard.vue'
 import AppendedUserMessage from '../../components/AppendedUserMessage.vue'
 import InterruptTraceItem from '../../components/InterruptTraceItem.vue'
 import ResponseSegmentBlock from '../../components/ResponseSegmentBlock.vue'
+import { shouldStreamContent } from '../../utils/chatCatchUp'
 
 export default {
   name: 'DebugMessage',
@@ -87,7 +88,8 @@ export default {
       return this.message.content || (this.activeResponseSegment && this.activeResponseSegment.content) || ''
     },
     contentStreaming() {
-      return !this.message.content && !!this.activeResponseSegment && this.message.status === 'running'
+      // 与 ElegantMessage 共用同一判据，避免两个模式逐步漂移。
+      return shouldStreamContent(this.message)
     },
     thinkCount() {
       return this.processParts.filter((p) => p.type === 'think').length

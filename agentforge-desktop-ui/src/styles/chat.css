@@ -694,6 +694,15 @@
   padding: 24px 0 12px;
 }
 
+/*
+ * 落底收敛期（chatCatchUp.settleBottom）关闭原生滚动锚定。
+ * 原生锚定会在我们改 scrollTop 的同时反向补偿，导致收敛抖动、视口停在中途。
+ * 与 MarkdownView 的 .af-markdown.is-streaming 同一手段，这里提到滚动容器级。
+ */
+.chat-feed.is-settling {
+  overflow-anchor: none;
+}
+
 .conversation-stage {
   position: relative;
   display: flex;
@@ -1368,6 +1377,57 @@
   background: #fff;
 }
 
+/*
+ * 「停止中」：点击停止后后端可能还在等待 Agent 收口，此时按钮保持红色，
+ * 把方块换成语义化的环形旋转，并给出 progress 光标，让等待过程可感知。
+ */
+.send-btn.is-stopping,
+.send-btn.is-stopping:disabled,
+.send-btn.is-stopping:hover {
+  background: #ef4444;
+  cursor: progress;
+}
+
+.stop-spinner {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  animation: stop-spinner-rotate 0.9s linear infinite;
+}
+
+.stop-spinner svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke-width: 2;
+}
+
+.stop-spinner-track {
+  stroke: #fff;
+  opacity: 0.32;
+}
+
+.stop-spinner-arc {
+  stroke: #fff;
+  stroke-linecap: round;
+  stroke-dasharray: 15 33;
+}
+
+@keyframes stop-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 尊重「减弱动态效果」：放慢而非取消，仍能表达“正在停止”。 */
+  .stop-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
 .composer-tip {
   max-width: 760px;
   margin: 6px auto 0;
@@ -1830,6 +1890,15 @@
   width: 100%;
 }
 
+/*
+ * 输入框内联 chip（资源 / Skill）统一垂直对齐。
+ * 两种 chip 度量完全一致，对齐值也必须一致；写在一起可避免只改到其中一种。
+ */
+.composer-input-editor .composer-inline-resource,
+.composer-input-editor .composer-inline-skill {
+  vertical-align: -2px;
+}
+
 .conversation-stage:not(.has-messages) .composer .composer-input-shell {
   min-height: 66px;
 }
@@ -1953,4 +2022,413 @@
   margin: 0;
   background: rgba(255, 255, 255, 0.72);
   border-color: rgba(122, 166, 225, 0.32);
+}
+
+/* ---------------------------------------------------------------------------
+ * 任务看板（右上角入口 + 三栏弹窗）
+ * 三栏：运行中 / 等待审批 / 已完成。分类口径见 utils/taskBoardGroup.js。
+ * ------------------------------------------------------------------------- */
+
+.task-board-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #5f6672;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.task-board-trigger svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+
+.task-board-trigger:hover:not(:disabled),
+.task-board-trigger:focus-visible {
+  background: #eef2ff;
+  color: #4f46e5;
+  border-color: #dbe2f0;
+}
+
+.task-board-trigger:disabled {
+  color: #c3c8d1;
+  cursor: not-allowed;
+}
+
+/* 有等待审批任务时，入口常亮提示，避免用户忽略 */
+.task-board-trigger.has-attention {
+  color: #b45309;
+}
+
+.task-board-trigger.has-attention:hover:not(:disabled) {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #b45309;
+}
+
+.task-board-badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #6b7280;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.task-board-badge.is-urgent {
+  background: #ea8c15;
+}
+
+/* ---- 弹窗骨架 ---- */
+.task-board-dialog {
+  max-width: calc(100vw - 96px);
+  margin-bottom: 6vh;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.task-board-dialog .el-dialog__header {
+  padding: 16px 22px 10px;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.task-board-dialog .el-dialog__body {
+  padding: 0 22px 18px;
+}
+
+.task-board-subhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 12px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.task-board-subhead-total {
+  padding-left: 10px;
+  border-left: 1px solid #e5e7eb;
+  color: #9ca3af;
+}
+
+/* ---- 三栏布局 ---- */
+.task-board-body {
+  display: flex;
+  gap: 14px;
+  min-height: 200px;
+}
+
+.board-column {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  padding: 10px;
+  border: 1px solid #eef1f5;
+  border-radius: 12px;
+  background: #fafbfc;
+}
+
+.board-column--waiting {
+  border-color: #fde9cd;
+  background: #fffdf8;
+}
+
+.board-column-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 9px;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.board-column-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.board-column-count {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #eef1f5;
+  color: #6b7280;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.board-column-count--urgent {
+  background: #fdebd0;
+  color: #b45309;
+}
+
+.board-list {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  max-height: min(56vh, 520px);
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 2px 2px;
+  overflow-y: auto;
+}
+
+/* ---- 卡片 ---- */
+.board-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid #eceff4;
+  border-radius: 10px;
+  background: #fff;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.board-item:hover {
+  border-color: #dbe2f0;
+  box-shadow: 0 2px 8px rgba(31, 41, 55, 0.06);
+}
+
+/* 等待审批：暖色左描边，仅在辅助层面强调；状态仍以文字表达 */
+.board-item.is-waiting {
+  border-left: 3px solid #f0b866;
+  background: #fffdf9;
+}
+
+.board-item-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.board-item-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 已完成栏标题与徽标同行，标题需要让位 */
+.board-item-head .board-item-title {
+  flex: 1 1 auto;
+}
+
+.board-item-workspace {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.board-workspace-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 1px 6px 1px 4px;
+  border: 1px solid #e5e9f0;
+  border-radius: 6px;
+  background: #f6f8fb;
+  color: #5b6472;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.board-workspace-chip svg {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: #8a919d;
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+}
+
+.board-workspace-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-workspace-plain {
+  color: #a8aeb8;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.board-item-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 1px;
+}
+
+.board-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: #9ca3af;
+  font-size: 10.5px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-meta--waiting {
+  color: #b45309;
+  font-weight: 500;
+}
+
+.board-running-icon {
+  color: #4f7fbd;
+  font-size: 11px;
+  line-height: 1;
+  animation: session-running-rotate 1s linear infinite;
+}
+
+/* ---- 状态徽标（仅已完成栏使用） ---- */
+.board-status {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #f1f3f7;
+  color: #6b7280;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.board-status.is-finished {
+  background: #eef2f7;
+  color: #525c6b;
+}
+
+.board-status.is-cancelling {
+  background: #fdf0e4;
+  color: #b45309;
+}
+
+.board-status.is-failed {
+  background: #fdecec;
+  color: #b4342a;
+}
+
+.board-status.is-idle {
+  background: #f5f6f8;
+  color: #9ca3af;
+}
+
+/* ---- 进入会话按钮 ---- */
+.board-enter-btn {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border: 1px solid #dbe2f0;
+  border-radius: 7px;
+  background: #fff;
+  color: #4f46e5;
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.board-enter-btn:hover,
+.board-enter-btn:focus-visible {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+
+.board-enter-btn.is-urgent {
+  border-color: #f5cf95;
+  color: #b45309;
+}
+
+.board-enter-btn.is-urgent:hover,
+.board-enter-btn.is-urgent:focus-visible {
+  background: #fff7ed;
+  border-color: #f0b866;
+}
+
+/* ---- 空态与说明 ---- */
+.board-empty {
+  margin: 0;
+  padding: 22px 6px;
+  color: #a8aeb8;
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.board-column-note {
+  margin: 8px 4px 0;
+  padding-top: 7px;
+  border-top: 1px dashed #eef1f5;
+  color: #a8aeb8;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.task-board-overall-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 56px 0;
+  color: #a8aeb8;
+}
+
+.task-board-overall-empty i {
+  font-size: 26px;
+  color: #d3d8e0;
+}
+
+.task-board-overall-empty p {
+  margin: 0;
+  font-size: 12px;
+}
+
+/* ---- 窄屏：三栏改为纵向堆叠 ---- */
+@media (max-width: 1000px) {
+  .task-board-body {
+    flex-direction: column;
+  }
+
+  .board-list {
+    max-height: 28vh;
+  }
 }

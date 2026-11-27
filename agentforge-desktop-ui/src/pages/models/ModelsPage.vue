@@ -20,7 +20,7 @@
       <el-table-column prop="url" label="Base URL" min-width="220" show-overflow-tooltip />
       <el-table-column label="操作" width="260" align="right">
         <template slot-scope="{ row }">
-          <el-button type="text" @click="test(row)">测试</el-button>
+          <test-action-button :loading="isTesting(row.id)" @click="test(row)" />
           <el-button type="text" @click="openCopy(row)">复制</el-button>
           <el-button type="text" @click="openEdit(row)">编辑</el-button>
           <el-button type="text" class="danger-text" @click="remove(row)">删除</el-button>
@@ -70,6 +70,8 @@
 
 <script>
 import { fetchModels, upsertModel, deleteModel, testConnectivity } from '../../api/model'
+import { keepFeedbackVisible } from '../../utils/feedbackTiming'
+import TestActionButton from '../../components/TestActionButton.vue'
 
 const emptyForm = () => ({
   id: null,
@@ -85,10 +87,12 @@ const emptyForm = () => ({
 
 export default {
   name: 'ModelsPage',
+  components: { TestActionButton },
   data: () => ({
     models: [],
     loading: false,
     saving: false,
+    testingModelIds: [],
     dialogVisible: false,
     copyFromName: '',
     form: emptyForm()
@@ -197,13 +201,23 @@ export default {
         this.$message.error(error.message || '删除失败')
       }
     },
+    isTesting(modelId) {
+      return this.testingModelIds.includes(modelId)
+    },
     async test(row) {
+      if (this.isTesting(row.id)) return
+      const startedAt = Date.now()
+      this.testingModelIds = [...this.testingModelIds, row.id]
       try {
         const result = await testConnectivity({ modelId: row.id })
+        await keepFeedbackVisible(startedAt)
         if (result.success) this.$message.success(result.message)
         else this.$message.warning(result.message)
       } catch (error) {
+        await keepFeedbackVisible(startedAt)
         this.$message.error(error.message || '测试失败')
+      } finally {
+        this.testingModelIds = this.testingModelIds.filter((id) => id !== row.id)
       }
     }
   }

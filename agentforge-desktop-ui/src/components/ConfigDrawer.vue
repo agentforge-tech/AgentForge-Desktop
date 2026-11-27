@@ -75,7 +75,7 @@
               <div class="drawer-model-actions">
                 <el-button type="text" @click="editModel(model)">编辑</el-button>
                 <el-button type="text" @click="copyModel(model)">复制</el-button>
-                <el-button type="text" @click="testModel(model)">测试</el-button>
+                <test-action-button :loading="isTesting(model.id)" @click="testModel(model)" />
               </div>
             </div>
             <el-button class="add-model-btn" icon="el-icon-plus" @click="newModel">新增模型</el-button>
@@ -220,6 +220,8 @@
 import { fetchModels, upsertModel, testConnectivity } from '../api/model'
 import { getAgent, upsertAgent } from '../api/agent'
 import { invalidateServerInfo } from '../api/client'
+import { keepFeedbackVisible } from '../utils/feedbackTiming'
+import TestActionButton from './TestActionButton.vue'
 
 const emptyModel = () => ({
   id: null,
@@ -247,6 +249,7 @@ const emptyAgent = () => ({
 
 export default {
   name: 'ConfigDrawer',
+  components: { TestActionButton },
   props: {
     visible: { type: Boolean, default: false },
     aid: { type: String, default: '' },
@@ -259,6 +262,7 @@ export default {
     savingModel: false,
     testingModelForm: false,
     modelTestResult: null,
+    testingModelIds: [],
     models: [],
     agentForm: emptyAgent(),
     initError: '',
@@ -572,6 +576,7 @@ export default {
       }
       this.testingModelForm = true
       this.modelTestResult = null
+      const startedAt = Date.now()
       const payload = {
         modelId: this.modelForm.id,
         provider: this.modelForm.provider,
@@ -594,6 +599,7 @@ export default {
           message: '连通性测试未通过：' + (error.message || '请检查模型配置后重试')
         }
       } finally {
+        await keepFeedbackVisible(startedAt)
         this.testingModelForm = false
       }
     },
@@ -613,13 +619,23 @@ export default {
         this.savingModel = false
       }
     },
+    isTesting(modelId) {
+      return this.testingModelIds.includes(modelId)
+    },
     async testModel(model) {
+      if (this.isTesting(model.id)) return
+      const startedAt = Date.now()
+      this.testingModelIds = [...this.testingModelIds, model.id]
       try {
         const result = await testConnectivity({ modelId: model.id })
+        await keepFeedbackVisible(startedAt)
         if (result.success) this.$message.success(result.message)
         else this.$message.warning(result.message)
       } catch (error) {
+        await keepFeedbackVisible(startedAt)
         this.$message.error(error.message || '测试失败')
+      } finally {
+        this.testingModelIds = this.testingModelIds.filter((id) => id !== model.id)
       }
     }
   }

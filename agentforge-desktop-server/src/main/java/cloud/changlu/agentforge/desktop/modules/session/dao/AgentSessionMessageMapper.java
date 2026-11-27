@@ -1,6 +1,7 @@
 package cloud.changlu.agentforge.desktop.modules.session.dao;
 
 import cloud.changlu.agentforge.desktop.modules.session.domain.AgentSessionMessagePojo;
+import cloud.changlu.agentforge.desktop.modules.session.domain.AgentSessionMessageStat;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
@@ -75,4 +76,15 @@ public interface AgentSessionMessageMapper {
 
     @Select("SELECT MAX(COALESCE(finished_at, create_time)) FROM ai_agent_session_message WHERE session_id=#{sessionId} AND is_deleted=0")
     String selectLastMessageTime(@Param("sessionId") Long sessionId);
+
+    /**
+     * 批量聚合会话消息数与最后消息时间。
+     *
+     * <p>会话列表全量返回时，逐会话统计会退化为 N+1 查询；这里用单条 GROUP BY 一次性取齐。
+     */
+    @Select("SELECT session_id AS sessionId,"
+            + " COUNT(1) AS messageCount,"
+            + " MAX(COALESCE(finished_at, create_time)) AS lastMessageAt"
+            + " FROM ai_agent_session_message WHERE is_deleted=0 GROUP BY session_id")
+    List<AgentSessionMessageStat> selectStatsGroupBySession();
 }

@@ -45,6 +45,14 @@ public interface AgentSessionMapper {
     @Select("SELECT * FROM ai_agent_session WHERE is_deleted=0 AND aid=#{aid} AND pin_order=0 ORDER BY modify_time DESC LIMIT #{limit}")
     List<AgentSessionPojo> selectNormalList(@Param("aid") String aid, @Param("limit") int limit);
 
+    /**
+     * 不限条数的非置顶会话列表。
+     *
+     * <p>左栏任务分组与工作空间分组需要完整展示历史会话，避免窗口外的会话“凭空消失”。
+     */
+    @Select("SELECT * FROM ai_agent_session WHERE is_deleted=0 AND aid=#{aid} AND pin_order=0 ORDER BY modify_time DESC")
+    List<AgentSessionPojo> selectAllNormalList(@Param("aid") String aid);
+
     @Select("SELECT * FROM ai_agent_session WHERE is_deleted=0 AND aid=#{aid} AND pin_order>0 ORDER BY pin_order DESC")
     List<AgentSessionPojo> selectTopList(@Param("aid") String aid);
 

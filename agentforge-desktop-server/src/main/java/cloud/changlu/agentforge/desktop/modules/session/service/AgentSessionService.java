@@ -3,6 +3,7 @@ package cloud.changlu.agentforge.desktop.modules.session.service;
 import cloud.changlu.agentforge.desktop.modules.session.dao.AgentSessionMapper;
 import cloud.changlu.agentforge.desktop.modules.session.dao.AgentSessionMessageMapper;
 import cloud.changlu.agentforge.desktop.modules.session.domain.AgentSessionMessagePojo;
+import cloud.changlu.agentforge.desktop.modules.session.domain.AgentSessionMessageStat;
 import cloud.changlu.agentforge.desktop.modules.session.domain.AgentSessionPojo;
 import cloud.changlu.agentforge.desktop.modules.session.domain.SessionMessageVo;
 import cloud.changlu.agentforge.desktop.modules.session.domain.SessionVo;
@@ -18,7 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -26,7 +29,6 @@ public class AgentSessionService {
 
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_LIMIT = 50;
     private static final long DEFAULT_USER_ID = 1L;
 
@@ -142,7 +144,11 @@ public class AgentSessionService {
         if (aid == null || aid.trim().isEmpty()) {
             throw new IllegalArgumentException("aid 不能为空");
         }
-        int size = limit == null || limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
+        // limit 缺省或 <= 0 表示不限条数：左栏与工作空间分组需要完整展示历史会话。
+        if (limit == null || limit <= 0) {
+            return toVoList(sessionMapper.selectAllNormalList(aid.trim()));
+        }
+        int size = Math.min(limit, MAX_LIMIT);
         return toVoList(sessionMapper.selectNormalList(aid.trim(), size));
     }
 
@@ -234,10 +240,28 @@ public class AgentSessionService {
 
     private List<SessionVo> toVoList(List<AgentSessionPojo> sessions) {
         List<SessionVo> result = new ArrayList<SessionVo>(sessions.size());
+        if (sessions.isEmpty()) {
+            return result;
+        }
+        // 批量列表用一条分组查询补齐统计，避免逐会话 N+1 查询。
+        // 分组结果里没有的会话说明尚无消息，统计直接取默认值，不再回退单条 SQL。
+        Map<Long, AgentSessionMessageStat> stats = loadMessageStats();
         for (AgentSessionPojo session : sessions) {
-            result.add(toVo(session));
+            result.add(toVo(session, stats.get(session.getId()), true));
         }
         return result;
+    }
+
+    private Map<Long, AgentSessionMessageStat> loadMessageStats() {
+        List<AgentSessionMessageStat> rows = messageMapper.selectStatsGroupBySession();
+        Map<Long, AgentSessionMessageStat> stats = new HashMap<Long, AgentSessionMessageStat>();
+        if (rows == null) return stats;
+        for (AgentSessionMessageStat row : rows) {
+            if (row != null && row.getSessionId() != null) {
+                stats.put(row.getSessionId(), row);
+            }
+        }
+        return stats;
     }
 
     private JsonNode parseContext(String raw) {
@@ -250,6 +274,16 @@ public class AgentSessionService {
     }
 
     private SessionVo toVo(AgentSessionPojo session) {
+        return toVo(session, null, false);
+    }
+
+    /**
+     * 组装会话 VO。
+     *
+     * @param stat        批量统计结果，可为 null
+     * @param bulk        是否批量场景：true 时不再回退单条 SQL，缺失统计按“无消息”处理
+     */
+    private SessionVo toVo(AgentSessionPojo session, AgentSessionMessageStat stat, boolean bulk) {
         SessionVo vo = new SessionVo();
         vo.setId(session.getId());
         vo.setSessionId(session.getSessionId());
@@ -263,8 +297,16 @@ public class AgentSessionService {
         vo.setCreateTime(session.getCreateTime());
         vo.setModifyTime(session.getModifyTime());
         vo.setRunning(SessionStatusEnum.RUNNING.getCode().equals(session.getStatus()));
-        vo.setMessageCount(messageMapper.countBySessionId(session.getId()));
-        vo.setLastMessageAt(messageMapper.selectLastMessageTime(session.getId()));
+        if (stat != null) {
+            vo.setMessageCount(stat.getMessageCount() == null ? 0 : stat.getMessageCount());
+            vo.setLastMessageAt(stat.getLastMessageAt());
+        } else if (bulk) {
+            vo.setMessageCount(0);
+            vo.setLastMessageAt(null);
+        } else {
+            vo.setMessageCount(messageMapper.countBySessionId(session.getId()));
+            vo.setLastMessageAt(messageMapper.selectLastMessageTime(session.getId()));
+        }
         return vo;
     }
 
