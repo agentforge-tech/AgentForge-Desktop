@@ -3,6 +3,7 @@ package cloud.changlu.agentforge.desktop.modules.chat.middleware;
 import cloud.changlu.agentforge.agent.component.middleware.IStreamingIAgentMiddleware;
 import cloud.changlu.agentforge.agent.domain.AgentChatContext;
 import cloud.changlu.agentforge.agent.domain.StopResult;
+import cloud.changlu.agentforge.agent.governance.interrupt.domain.AgentInterruptSnapshot;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.AgentSuspendInfo;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptResumeContext;
 import cloud.changlu.agentforge.agent.stream.PartialThinking;
@@ -13,7 +14,7 @@ import cloud.changlu.agentforge.service.protocol.StreamEventResponse;
 import cloud.changlu.agentforge.service.protocol.ToolCallResult;
 import cloud.changlu.agentforge.service.protocol.processor.AiErrorProcessor;
 import cloud.changlu.agentforge.service.protocol.processor.AiResponseProcessor;
-import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptRuntimeRegistry;
+import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptEventContentFactory;
 import cloud.changlu.agentforge.service.protocol.processor.AiSessionProcessor;
 import cloud.changlu.agentforge.service.protocol.processor.interrupt.InterruptEventProcessor;
 import cloud.changlu.agentforge.service.protocol.processor.retry.AiRetryProcessor;
@@ -35,14 +36,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
 
-    private final DesktopInterruptRuntimeRegistry interruptRegistry;
     private final SessionLifecycleMiddleware lifecycleMiddleware;
+    private final DesktopInterruptEventContentFactory interruptContentFactory;
 
     public ServiceStreamingMiddleware(
-            DesktopInterruptRuntimeRegistry interruptRegistry,
-            SessionLifecycleMiddleware lifecycleMiddleware) {
-        this.interruptRegistry = interruptRegistry;
+            SessionLifecycleMiddleware lifecycleMiddleware,
+            DesktopInterruptEventContentFactory interruptContentFactory) {
         this.lifecycleMiddleware = lifecycleMiddleware;
+        this.interruptContentFactory = interruptContentFactory;
     }
 
     /** memoryId -> 本次运行的会话输出上下文 */
@@ -78,31 +79,12 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         }
     }
 
-    /** 等待 HITL 时没有活动 Agent 线程，直接取消批次并收口原消息。 */
-    public boolean cancelWaitingInterrupt(Object memoryId) {
-        DesktopInterruptRuntimeRegistry.BatchContext batch =
-                interruptRegistry.cancelByMemoryId(memoryId);
-        if (batch == null) {
-            return false;
-        }
-        StreamEventResponse event = InterruptEventProcessor.cancelled(batch.eventContent());
-        publish(memoryId, event);
-        lifecycleMiddleware.cancelWaitingForHitl(memoryId, event);
-        unbind(memoryId);
-        interruptRegistry.release(memoryId);
-        return true;
-    }
-
     /** Framework 抢占或恢复失败时推送 interrupt_resume_failed，避免页面停在 RESUMING。 */
-    public void interruptResumeFailed(Object memoryId, String batchId, Throwable error) {
-        DesktopInterruptRuntimeRegistry.BatchContext batch =
-                interruptRegistry.requireBatch(batchId);
-        if (batch.getStatus() == DesktopInterruptRuntimeRegistry.Status.FAILED) {
-            return;
-        }
-        interruptRegistry.failed(batchId);
+    public void interruptResumeFailed(
+            Object memoryId, AgentInterruptSnapshot snapshot, Throwable error) {
         Map<String, Object> content =
-                new java.util.LinkedHashMap<String, Object>(batch.eventContent());
+                new java.util.LinkedHashMap<String, Object>(
+                        interruptContentFactory.snapshot(snapshot, "FAILED"));
         content.put("error", safeMessage(error));
         StreamEventResponse event = InterruptEventProcessor.failed(content);
         publish(memoryId, event);
@@ -116,9 +98,9 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         if (suspendInfo == null || chatContext == null) {
             return;
         }
-        DesktopInterruptRuntimeRegistry.BatchContext batch =
-                interruptRegistry.suspend(chatContext.getMemoryId(), suspendInfo);
-        StreamEventResponse event = InterruptEventProcessor.requested(batch.eventContent());
+        StreamEventResponse event =
+                InterruptEventProcessor.requested(
+                        interruptContentFactory.requested(suspendInfo, chatContext));
         publish(chatContext.getMemoryId(), event);
         lifecycleMiddleware.markWaitingForHitl(chatContext.getMemoryId(), event);
     }
@@ -130,9 +112,9 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         if (resumeContext == null || chatContext == null) {
             return;
         }
-        DesktopInterruptRuntimeRegistry.BatchContext batch =
-                interruptRegistry.requireBatch(resumeContext.getBatchId());
-        StreamEventResponse event = InterruptEventProcessor.resuming(batch.eventContent());
+        StreamEventResponse event =
+                InterruptEventProcessor.resuming(
+                        interruptContentFactory.snapshot(resumeContext.getSnapshot(), "RESUMING"));
         publish(chatContext.getMemoryId(), event);
         lifecycleMiddleware.markResuming(chatContext.getMemoryId(), event);
     }
@@ -144,10 +126,9 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         if (resumeContext == null || chatContext == null) {
             return;
         }
-        interruptRegistry.completed(resumeContext.getBatchId());
-        DesktopInterruptRuntimeRegistry.BatchContext batch =
-                interruptRegistry.requireBatch(resumeContext.getBatchId());
-        StreamEventResponse event = InterruptEventProcessor.resumed(batch.eventContent());
+        StreamEventResponse event =
+                InterruptEventProcessor.resumed(
+                        interruptContentFactory.snapshot(resumeContext.getSnapshot(), "COMPLETED"));
         publish(chatContext.getMemoryId(), event);
         lifecycleMiddleware.collectEvent(chatContext.getMemoryId(), event);
     }
@@ -159,10 +140,9 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         if (resumeContext == null || chatContext == null) {
             return;
         }
-        interruptRegistry.failed(resumeContext.getBatchId());
-        DesktopInterruptRuntimeRegistry.BatchContext batch =
-                interruptRegistry.requireBatch(resumeContext.getBatchId());
-        Map<String, Object> content = new java.util.LinkedHashMap<String, Object>(batch.eventContent());
+        Map<String, Object> content =
+                new java.util.LinkedHashMap<String, Object>(
+                        interruptContentFactory.snapshot(resumeContext.getSnapshot(), "FAILED"));
         content.put("error", safeMessage(error));
         StreamEventResponse event = InterruptEventProcessor.failed(content);
         publish(chatContext.getMemoryId(), event);
@@ -307,7 +287,6 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         }
         Object memoryId = chatContext == null ? null : chatContext.getMemoryId();
         unbind(memoryId);
-        interruptRegistry.release(memoryId);
     }
 
     @Override
@@ -318,7 +297,6 @@ public class ServiceStreamingMiddleware implements IStreamingIAgentMiddleware {
         }
         Object memoryId = chatContext == null ? null : chatContext.getMemoryId();
         unbind(memoryId);
-        interruptRegistry.release(memoryId);
     }
 
     private SessionContext state(AgentChatContext chatContext) {

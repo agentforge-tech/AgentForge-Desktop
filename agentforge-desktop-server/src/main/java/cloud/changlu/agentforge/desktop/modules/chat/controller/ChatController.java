@@ -2,11 +2,14 @@ package cloud.changlu.agentforge.desktop.modules.chat.controller;
 
 import cloud.changlu.agentforge.agent.domain.AgentAttachment;
 import cloud.changlu.agentforge.agent.domain.AgentRequest;
+import cloud.changlu.agentforge.agent.governance.interrupt.domain.AgentInterruptSnapshot;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.ApprovalAction;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptBatchResumeCommand;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptRequest;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptResponse;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptType;
+import cloud.changlu.agentforge.agent.governance.interrupt.spi.AgentInterruptStore;
+import cloud.changlu.agentforge.agent.governance.permission.domain.PermissionMode;
 import cloud.changlu.agentforge.agent.governance.tool.askuser.AskUserAnswer;
 import cloud.changlu.agentforge.agent.governance.tool.askuser.AskUserResponse;
 import cloud.changlu.agentforge.agent.governance.tool.askuser.AskUserSupport;
@@ -16,9 +19,13 @@ import cloud.changlu.agentforge.desktop.modules.agent.attachment.DesktopModelCap
 import cloud.changlu.agentforge.desktop.modules.agent.runtime.AgentRuntimeService;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.AgentInterruptResumeReq;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.AgentInterruptResponseReq;
+import cloud.changlu.agentforge.desktop.modules.chat.context.DesktopAgentContextAccessor;
+import cloud.changlu.agentforge.desktop.modules.chat.context.DesktopExecutionContext;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.AskUserAnswerReq;
-import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptRuntimeRegistry;
+import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptEventContentFactory;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatStopVo;
+import cloud.changlu.agentforge.service.protocol.StreamEventResponse;
+import cloud.changlu.agentforge.service.protocol.processor.interrupt.InterruptEventProcessor;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.ChatStreamRequest;
 import cloud.changlu.agentforge.desktop.modules.chat.governance.DesktopPermissionModule;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreamingMiddleware;
@@ -66,7 +73,9 @@ public class ChatController {
     private final AgentRuntimeService runtimeService;
     private final ServiceStreamingMiddleware streamingMiddleware;
     private final SessionLifecycleMiddleware sessionLifecycleMiddleware;
-    private final DesktopInterruptRuntimeRegistry interruptRegistry;
+    private final AgentInterruptStore interruptStore;
+    private final DesktopAgentContextAccessor contextAccessor;
+    private final DesktopInterruptEventContentFactory interruptContentFactory;
     private final AgentSessionMessageMapper messageMapper;
     private final AgentSessionMapper sessionMapper;
     private final DesktopProperties desktopProperties;
@@ -84,7 +93,9 @@ public class ChatController {
             AgentRuntimeService runtimeService,
             ServiceStreamingMiddleware streamingMiddleware,
             SessionLifecycleMiddleware sessionLifecycleMiddleware,
-            DesktopInterruptRuntimeRegistry interruptRegistry,
+            AgentInterruptStore interruptStore,
+            DesktopAgentContextAccessor contextAccessor,
+            DesktopInterruptEventContentFactory interruptContentFactory,
             AgentSessionMessageMapper messageMapper,
             AgentSessionMapper sessionMapper,
             DesktopProperties desktopProperties,
@@ -97,7 +108,9 @@ public class ChatController {
         this.runtimeService = runtimeService;
         this.streamingMiddleware = streamingMiddleware;
         this.sessionLifecycleMiddleware = sessionLifecycleMiddleware;
-        this.interruptRegistry = interruptRegistry;
+        this.interruptStore = interruptStore;
+        this.contextAccessor = contextAccessor;
+        this.interruptContentFactory = interruptContentFactory;
         this.messageMapper = messageMapper;
         this.sessionMapper = sessionMapper;
         this.desktopProperties = desktopProperties;
@@ -133,6 +146,8 @@ public class ChatController {
         final HarnessAgent runtime;
         final String question;
         final List<AgentAttachment> attachments;
+        final DesktopExecutionContext executionContext;
+        final PermissionMode permissionMode = DesktopPermissionModule.resolveMode(body.getMode());
         try {
             List<ResolvedResource> resources = resourceService.resolve(body.getFiles());
             String displayMessage = resourceService.displayText(body.getMessage());
@@ -156,20 +171,21 @@ public class ChatController {
                     aid, resolvedSessionId, displayMessage, modelId, 1L,
                     binding.getWorkspaceId(), binding.getWorkspacePath(), reqJson);
             runtime = runtimeService.getOrCreate(
-                    agent, model, binding.getWorkspacePath(),
-                    DesktopPermissionModule.resolveMode(body.getMode()));
+                    agent, model, binding.getWorkspacePath(), permissionMode);
+            executionContext =
+                    new DesktopExecutionContext(
+                            init.getAiMessageId(),
+                            init.getSessionId(),
+                            init.getSessionPk(),
+                            aid,
+                            modelId,
+                            binding.getWorkspacePath(),
+                            permissionMode);
         } catch (RuntimeException e) {
             return notice(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
 
         final String executionId = runtimeService.createExecutionId(runtime);
-        interruptRegistry.register(
-                init.getSessionId(),
-                init.getSessionId(),
-                init.getSessionPk(),
-                init.getAiMessageId(),
-                executionId,
-                runtime);
         final SseEmitter emitter = new SseEmitter(0L);
         streamingMiddleware.bind(init.getSessionId(), emitter);
         activeStops.put(
@@ -186,6 +202,7 @@ public class ChatController {
         extensions.put(SessionLifecycleMiddleware.EXT_SESSION_ID, init.getSessionId());
         extensions.put(SessionLifecycleMiddleware.EXT_AI_MESSAGE_ID, init.getAiMessageId());
         extensions.put("session.sessionPk", init.getSessionPk());
+        contextAccessor.write(extensions, executionContext);
 
         executor.execute(
                 () -> {
@@ -213,35 +230,49 @@ public class ChatController {
         if (body == null || body.getBatchId() == null || body.getBatchId().trim().isEmpty()) {
             throw new IllegalArgumentException("batchId 不能为空");
         }
-        DesktopInterruptRuntimeRegistry.BatchContext pending =
-                interruptRegistry.requireBatch(body.getBatchId().trim());
-        InterruptBatchResumeCommand command = toResumeCommand(pending, body);
-        DesktopInterruptRuntimeRegistry.BatchContext claimed =
-                interruptRegistry.claim(body.getBatchId().trim());
-        DesktopInterruptRuntimeRegistry.RuntimeContext runtime = claimed.getRuntime();
+        String batchId = body.getBatchId().trim();
+        AgentInterruptSnapshot snapshot = interruptStore.get(batchId);
+        DesktopExecutionContext attribution = contextAccessor.requireForHitl(snapshot);
+
+        AgentSessionMessagePojo message = requireOwnedAiMessage(attribution.getAiMessageId());
+        verifySession(message, attribution.getSessionId());
+
+        DesktopConfigStore.AgentConfig agent = configStore.findAgent(attribution.getAid());
+        if (agent == null) {
+            throw new IllegalArgumentException("Agent 不存在或已被删除: " + attribution.getAid());
+        }
+        DesktopConfigStore.ModelConfig model = configStore.findModel(attribution.getModelId());
+        if (model == null) {
+            throw new IllegalArgumentException("模型不存在或已被删除: " + attribution.getModelId());
+        }
+        HarnessAgent runtime = runtimeService.getOrCreate(
+                agent, model, attribution.getWorkspacePath(), attribution.getPermissionMode());
+
+        InterruptBatchResumeCommand command = toResumeCommand(snapshot, body);
+
+        sessionLifecycleMiddleware.registerRun(
+                attribution.getSessionId(), attribution.getSessionId(),
+                attribution.getSessionPk(), message.getId());
+        String executionId = snapshot.getSourceExecutionId();
+        activeStops.put(
+                attribution.getSessionId(),
+                execId -> runtimeService.cancel(
+                        runtime, attribution.getSessionId(),
+                        execId == null ? executionId : execId));
 
         final SseEmitter emitter = new SseEmitter(0L);
-        streamingMiddleware.bind(runtime.getMemoryId(), emitter);
-        activeStops.put(
-                runtime.getSessionId(),
-                execId ->
-                        runtimeService.cancel(
-                                runtime.getAgent(),
-                                runtime.getSessionId(),
-                                execId == null ? runtime.getExecutionId() : execId));
-        emitter.onCompletion(() -> cleanup(runtime.getSessionId()));
-        emitter.onTimeout(() -> cleanup(runtime.getSessionId()));
+        streamingMiddleware.bind(attribution.getSessionId(), emitter);
+        emitter.onCompletion(() -> cleanup(attribution.getSessionId()));
+        emitter.onTimeout(() -> cleanup(attribution.getSessionId()));
 
         executor.execute(
                 () -> {
                     try {
-                        runtimeService.resumeInterruptStream(runtime.getAgent(), command);
+                        runtimeService.resumeInterruptStream(runtime, command);
                     } catch (RuntimeException e) {
                         streamingMiddleware.interruptResumeFailed(
-                                runtime.getMemoryId(),
-                                claimed.getSuspendInfo().getBatchId(),
-                                e);
-                        sessionLifecycleMiddleware.finishWithError(runtime.getMemoryId(), e);
+                                attribution.getSessionId(), snapshot, e);
+                        sessionLifecycleMiddleware.finishWithError(attribution.getSessionId(), e);
                     }
                 });
         return emitter;
@@ -271,7 +302,7 @@ public class ChatController {
             return ChatStopVo.of(message.getId(), false, current, false);
         }
         if (current == SessionMessageStatusEnum.WAITING_HITL
-                && streamingMiddleware.cancelWaitingInterrupt(session.getSessionId())) {
+                && cancelWaitingInterrupt(session.getSessionId())) {
             activeStops.remove(session.getSessionId());
             AgentSessionMessagePojo canceled = messageMapper.selectById(message.getId());
             return ChatStopVo.of(
@@ -411,8 +442,41 @@ public class ChatController {
                 .format(FORMATTER);
     }
 
+    private boolean cancelWaitingInterrupt(String sessionId) {
+        AgentInterruptSnapshot cancelled = interruptStore.cancelPendingByMemoryId(sessionId);
+        if (cancelled == null) {
+            return false;
+        }
+        StreamEventResponse event =
+                InterruptEventProcessor.cancelled(
+                        interruptContentFactory.snapshot(cancelled, "CANCELLED"));
+        streamingMiddleware.publish(sessionId, event);
+        sessionLifecycleMiddleware.cancelWaitingForHitl(sessionId, event);
+        streamingMiddleware.unbind(sessionId);
+        return true;
+    }
+
+    private AgentSessionMessagePojo requireOwnedAiMessage(Long messageId) {
+        if (messageId == null) {
+            throw new IllegalArgumentException("messageId 不能为空");
+        }
+        AgentSessionMessagePojo message = messageMapper.selectById(messageId);
+        if (message == null
+                || !SessionMessageRoleEnum.AI.getCode().equals(message.getRoleType())) {
+            throw new IllegalArgumentException("AI消息不存在或已被删除");
+        }
+        return message;
+    }
+
+    private void verifySession(AgentSessionMessagePojo message, String sessionId) {
+        AgentSessionPojo session = sessionMapper.selectById(message.getSessionId());
+        if (session == null || !sessionId.equals(session.getSessionId())) {
+            throw new IllegalStateException("INTERRUPT_SESSION_MISMATCH");
+        }
+    }
+
     private static InterruptBatchResumeCommand toResumeCommand(
-            DesktopInterruptRuntimeRegistry.BatchContext batch, AgentInterruptResumeReq request) {
+            AgentInterruptSnapshot snapshot, AgentInterruptResumeReq request) {
         List<AgentInterruptResponseReq> submitted =
                 request.getResponses() == null
                         ? java.util.Collections.<AgentInterruptResponseReq>emptyList()
@@ -428,7 +492,7 @@ public class ChatController {
             }
         }
         List<InterruptResponse> responses = new java.util.ArrayList<InterruptResponse>();
-        for (InterruptRequest interrupt : batch.getSuspendInfo().getInterrupts()) {
+        for (InterruptRequest interrupt : snapshot.getInterrupts()) {
             AgentInterruptResponseReq item = indexed.remove(interrupt.getInterruptId());
             if (item == null) {
                 throw new IllegalArgumentException("缺少中断项回复: " + interrupt.getInterruptId());

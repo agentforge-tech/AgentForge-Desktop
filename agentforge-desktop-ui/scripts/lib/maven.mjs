@@ -55,13 +55,13 @@ export function coreArtifact(repo) {
     'changlu',
     'agentforge',
     'agentforge-agent-core',
-    '1.0.1-SNAPSHOT',
-    'agentforge-agent-core-1.0.1-SNAPSHOT.jar'
+    '1.0.2-SNAPSHOT',
+    'agentforge-agent-core-1.0.2-SNAPSHOT.jar'
   )
 }
 
 export function requiredArtifacts(repo) {
-  const version = '1.0.1-SNAPSHOT'
+  const version = '1.0.2-SNAPSHOT'
   const artifacts = [
     ['agentforge-ai-bom', 'pom'],
     ['agentforge-model-api', 'jar'],

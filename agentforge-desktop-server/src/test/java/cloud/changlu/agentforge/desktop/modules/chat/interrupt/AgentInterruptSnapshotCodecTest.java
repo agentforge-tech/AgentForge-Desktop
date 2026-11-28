@@ -14,7 +14,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -71,6 +73,29 @@ class AgentInterruptSnapshotCodecTest {
         assertNull(decoded.getInterrupts().get(0).getPayload());
         assertEquals(1, decoded.getDenials().size());
         assertTrue(decoded.getToolRequests().get(0).arguments().contains("rm -rf build"));
+    }
+
+    @Test
+    void contextAttributesRoundTrip() {
+        ToolExecutionRequest bash =
+                ToolExecutionRequest.from("call_bash", "bash", "{\"command\":\"ls\"}");
+        Map<String, String> attributes = new LinkedHashMap<String, String>();
+        attributes.put("agentforge.execution.aiMessageId", "9012");
+        attributes.put("agentforge.execution.aid", "agt_default");
+        AgentInterruptSnapshot snapshot =
+                AgentInterruptSnapshot.initial(
+                                "batch_1",
+                                "session-1",
+                                "exec-1",
+                                1,
+                                Collections.singletonList(bash),
+                                Collections.<InterruptRequest>emptyList())
+                        .withContextAttributes(attributes);
+
+        AgentInterruptSnapshot decoded = codec.decode(pojo(snapshot));
+
+        assertEquals("9012", decoded.getContextAttributes().get("agentforge.execution.aiMessageId"));
+        assertEquals("agt_default", decoded.getContextAttributes().get("agentforge.execution.aid"));
     }
 
     @Test

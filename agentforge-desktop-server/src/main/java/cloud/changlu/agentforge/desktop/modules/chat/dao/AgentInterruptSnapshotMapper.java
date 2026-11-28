@@ -21,6 +21,10 @@ public interface AgentInterruptSnapshotMapper {
     @Select("SELECT * FROM ai_agent_interrupt_snapshot WHERE batch_id=#{batchId}")
     AgentInterruptSnapshotPojo selectByBatchId(@Param("batchId") String batchId);
 
+    @Select("SELECT * FROM ai_agent_interrupt_snapshot WHERE memory_id=#{memoryId}"
+            + " AND status='PENDING' ORDER BY id DESC LIMIT 1")
+    AgentInterruptSnapshotPojo selectPendingByMemoryId(@Param("memoryId") String memoryId);
+
     @Update("UPDATE ai_agent_interrupt_snapshot SET status='RESUMING', version=version+1,"
             + " claimed_at=#{now}, modify_time=#{now} WHERE batch_id=#{batchId} AND status='PENDING'")
     int claim(@Param("batchId") String batchId, @Param("now") String now);
@@ -28,4 +32,8 @@ public interface AgentInterruptSnapshotMapper {
     @Update("UPDATE ai_agent_interrupt_snapshot SET status='COMPLETED', version=version+1,"
             + " resolved_at=#{now}, modify_time=#{now} WHERE batch_id=#{batchId} AND status<>'COMPLETED'")
     int complete(@Param("batchId") String batchId, @Param("now") String now);
+
+    @Update("UPDATE ai_agent_interrupt_snapshot SET status='CANCELLED', version=version+1,"
+            + " resolved_at=#{now}, modify_time=#{now} WHERE batch_id=#{batchId} AND status='PENDING'")
+    int cancel(@Param("batchId") String batchId, @Param("now") String now);
 }

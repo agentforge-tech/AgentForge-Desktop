@@ -17,12 +17,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Framework 中断快照与 snapshot_json 的编解码器。
  *
- * <p>只序列化冻结的 toolRequests / interrupts / denials；batchId、memoryId、step、status 以列字段为准。
+ * <p>序列化归属 contextAttributes 与冻结的 toolRequests / interrupts / denials；batchId、memoryId、step、status 以列字段为准。
  * 反序列化执行 fail-closed 校验，未知 schema、状态、类型或快照结构不一致时禁止恢复。
  */
 public final class AgentInterruptSnapshotCodec {
@@ -57,6 +59,7 @@ public final class AgentInterruptSnapshotCodec {
     public String encode(AgentInterruptSnapshot snapshot) {
         StoredSnapshot stored = new StoredSnapshot();
         stored.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+        stored.setContextAttributes(snapshot.getContextAttributes());
         stored.setToolRequests(toStoredRequests(snapshot.getToolRequests()));
         stored.setInterrupts(toStoredInterrupts(snapshot.getInterrupts()));
         stored.setDenials(toStoredDenials(snapshot.getDenials()));
@@ -98,7 +101,8 @@ public final class AgentInterruptSnapshotCodec {
                     status(pojo.getStatus(), batchId),
                     toolRequests,
                     interrupts,
-                    denials);
+                    denials,
+                    stored.getContextAttributes());
         } catch (IllegalStateException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -371,6 +375,7 @@ public final class AgentInterruptSnapshotCodec {
 
     public static final class StoredSnapshot {
         private Integer schemaVersion;
+        private Map<String, String> contextAttributes;
         private List<StoredToolRequest> toolRequests;
         private List<StoredInterrupt> interrupts;
         private List<StoredDenial> denials;
@@ -381,6 +386,19 @@ public final class AgentInterruptSnapshotCodec {
 
         public void setSchemaVersion(Integer schemaVersion) {
             this.schemaVersion = schemaVersion;
+        }
+
+        public Map<String, String> getContextAttributes() {
+            return contextAttributes == null
+                    ? new LinkedHashMap<String, String>()
+                    : contextAttributes;
+        }
+
+        public void setContextAttributes(Map<String, String> contextAttributes) {
+            this.contextAttributes =
+                    contextAttributes == null
+                            ? new LinkedHashMap<String, String>()
+                            : new LinkedHashMap<String, String>(contextAttributes);
         }
 
         public List<StoredToolRequest> getToolRequests() {

@@ -1,8 +1,11 @@
 package cloud.changlu.agentforge.desktop.modules.chat.interrupt;
 
+import cloud.changlu.agentforge.agent.domain.AgentChatContext;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.AgentInterruptSnapshot;
 import cloud.changlu.agentforge.agent.governance.interrupt.domain.InterruptBatchStatus;
 import cloud.changlu.agentforge.agent.governance.interrupt.spi.AgentInterruptStore;
+import cloud.changlu.agentforge.desktop.modules.chat.context.DesktopAgentContextAccessor;
+import cloud.changlu.agentforge.desktop.modules.chat.context.DesktopExecutionContext;
 import cloud.changlu.agentforge.desktop.modules.chat.dao.AgentInterruptSnapshotMapper;
 import cloud.changlu.agentforge.desktop.modules.chat.domain.AgentInterruptSnapshotPojo;
 import org.springframework.dao.DataAccessException;
@@ -13,9 +16,9 @@ import java.time.format.DateTimeFormatter;
 /**
  * SQLite 版 AgentInterruptStore。
  *
- * <p>与 InMemoryAgentInterruptStore 语义对齐：首次 save 唯一、get 不存在报错、claim 以单条
- * PENDING -> RESUMING 的条件更新完成 CAS、complete 幂等。快照可跨 Runtime 重建保留，但不承诺
- * 跨进程自动恢复执行。
+ * <p>与上游 {@code MysqlAgentInterruptStore} 语义对齐：归属上下文在 {@code save} 时由执行上下文写入
+ * {@code snapshot_json.contextAttributes}；get 不存在报错、claim 以单条 PENDING -> RESUMING 的条件更新完成
+ * CAS、complete 幂等、cancel 仅取消 PENDING。快照可跨进程恢复执行。
  */
 public final class SqliteAgentInterruptStore implements AgentInterruptStore {
 
@@ -24,18 +27,29 @@ public final class SqliteAgentInterruptStore implements AgentInterruptStore {
 
     private final AgentInterruptSnapshotMapper mapper;
     private final AgentInterruptSnapshotCodec codec;
+    private final DesktopAgentContextAccessor contextAccessor;
 
     public SqliteAgentInterruptStore(
-            AgentInterruptSnapshotMapper mapper, AgentInterruptSnapshotCodec codec) {
+            AgentInterruptSnapshotMapper mapper,
+            AgentInterruptSnapshotCodec codec,
+            DesktopAgentContextAccessor contextAccessor) {
         this.mapper = mapper;
         this.codec = codec;
+        this.contextAccessor = contextAccessor;
     }
 
     @Override
-    public void save(AgentInterruptSnapshot snapshot) {
+    public void save(AgentInterruptSnapshot snapshot, AgentChatContext context) {
         if (snapshot == null) {
             throw new IllegalArgumentException("interrupt snapshot must not be null");
         }
+        DesktopExecutionContext executionContext = contextAccessor.requireForHitl(context);
+        persist(
+                snapshot.withContextAttributes(
+                        contextAccessor.toSnapshotAttributes(executionContext)));
+    }
+
+    private void persist(AgentInterruptSnapshot snapshot) {
         String batchId = snapshot.getBatchId();
         String now = now();
         AgentInterruptSnapshotPojo pojo = new AgentInterruptSnapshotPojo();
@@ -84,6 +98,9 @@ public final class SqliteAgentInterruptStore implements AgentInterruptStore {
         if (status == InterruptBatchStatus.RESUMING) {
             throw new IllegalStateException("interrupt batch is being resumed: " + batchId);
         }
+        if (status == InterruptBatchStatus.CANCELLED) {
+            throw new IllegalStateException("interrupt batch already cancelled: " + batchId);
+        }
         throw new IllegalStateException(
                 "interrupt batch claim conflict, status=" + status + ", batch=" + batchId);
     }
@@ -91,6 +108,17 @@ public final class SqliteAgentInterruptStore implements AgentInterruptStore {
     @Override
     public void complete(String batchId) {
         mapper.complete(batchId, now());
+    }
+
+    @Override
+    public AgentInterruptSnapshot cancelPendingByMemoryId(Object memoryId) {
+        AgentInterruptSnapshotPojo current =
+                mapper.selectPendingByMemoryId(codec.memoryId(memoryId));
+        if (current == null || mapper.cancel(current.getBatchId(), now()) != 1) {
+            return null;
+        }
+        current.setStatus(InterruptBatchStatus.CANCELLED.name());
+        return codec.decode(current);
     }
 
     private static boolean isDuplicateKey(Throwable error) {

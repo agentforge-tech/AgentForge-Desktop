@@ -4,10 +4,11 @@ import cloud.changlu.agentforge.agent.extend.middlewares.append.event.UserMessag
 import cloud.changlu.agentforge.agent.governance.interrupt.spi.AgentInterruptStore;
 import cloud.changlu.agentforge.agent.extend.middlewares.append.store.UserMessageAppendStore;
 import cloud.changlu.agentforge.desktop.modules.chat.append.SqliteUserMessageAppendStore;
+import cloud.changlu.agentforge.desktop.modules.chat.context.DesktopAgentContextAccessor;
 import cloud.changlu.agentforge.desktop.modules.chat.dao.AgentInterruptSnapshotMapper;
 import cloud.changlu.agentforge.desktop.modules.chat.dao.UserMessageAppendMapper;
 import cloud.changlu.agentforge.desktop.modules.chat.interrupt.AgentInterruptSnapshotCodec;
-import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptRuntimeRegistry;
+import cloud.changlu.agentforge.desktop.modules.chat.interrupt.DesktopInterruptEventContentFactory;
 import cloud.changlu.agentforge.desktop.modules.chat.interrupt.SqliteAgentInterruptStore;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.DesktopUserMessageAppendEventListener;
 import cloud.changlu.agentforge.desktop.modules.chat.middleware.ServiceStreamingMiddleware;
@@ -24,8 +25,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 public class DesktopAgentConfiguration {
 
     @Bean
-    public DesktopInterruptRuntimeRegistry desktopInterruptRuntimeRegistry() {
-        return new DesktopInterruptRuntimeRegistry();
+    public DesktopAgentContextAccessor desktopAgentContextAccessor() {
+        return new DesktopAgentContextAccessor();
+    }
+
+    @Bean
+    public DesktopInterruptEventContentFactory desktopInterruptEventContentFactory(
+            DesktopAgentContextAccessor contextAccessor) {
+        return new DesktopInterruptEventContentFactory(contextAccessor);
     }
 
     @Bean
@@ -39,16 +46,19 @@ public class DesktopAgentConfiguration {
 
     @Bean
     public ServiceStreamingMiddleware serviceStreamingMiddleware(
-            DesktopInterruptRuntimeRegistry interruptRegistry,
-            SessionLifecycleMiddleware sessionLifecycleMiddleware) {
-        return new ServiceStreamingMiddleware(interruptRegistry, sessionLifecycleMiddleware);
+            SessionLifecycleMiddleware sessionLifecycleMiddleware,
+            DesktopInterruptEventContentFactory interruptContentFactory) {
+        return new ServiceStreamingMiddleware(
+                sessionLifecycleMiddleware, interruptContentFactory);
     }
 
     @Bean
     public AgentInterruptStore agentInterruptStore(
-            AgentInterruptSnapshotMapper mapper, ObjectMapper objectMapper) {
+            AgentInterruptSnapshotMapper mapper,
+            ObjectMapper objectMapper,
+            DesktopAgentContextAccessor contextAccessor) {
         return new SqliteAgentInterruptStore(
-                mapper, new AgentInterruptSnapshotCodec(objectMapper));
+                mapper, new AgentInterruptSnapshotCodec(objectMapper), contextAccessor);
     }
 
     @Bean
